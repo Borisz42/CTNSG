@@ -98,10 +98,16 @@ The CTNSG framework trains on a progressive graph curriculum combining **WebNLG 
 The raw text and schema rules have been fully preprocessed, mathematically canonicalized, and hosted as compressed PyTorch binaries on Hugging Face.
 
 ### Preprocessing & Topology
-* **Node Embeddings:** All text nodes (entities, events, tables, columns) are embedded into continuous 256-dimensional features using `sentence-transformers/all-MiniLM-L6-v2`.
+* **Node Embeddings:** All text nodes (entities, events, tables, columns, utterances) are embedded into continuous 256-dimensional features using `sentence-transformers/all-MiniLM-L6-v2`.
 * **Causal Reasoning (ATOMIC):** Instead of generating 200,000 disconnected star-graphs, the pipeline employs a strict **Entity Re-use Mechanism**. Shared events and effects are stitched together, compressing the entire dataset into a single, highly dense, multi-hop Directed Acyclic Graph (DAG) with 79,608 unique nodes and 181,278 directed edges.
 * **SQL Generation (Spider):** Natural language questions are topologically routed into database schemas. The schemas are structured as DAGs (Tables $\rightarrow$ Columns), ensuring the Macroplanner strictly adheres to syntax-valid schema limits.
 * **Canonicalization:** To ensure the Graph VQ-Transformer can compress the graph losslessly, the adjacency matrices are mathematically sorted using the **Reverse Cuthill-McKee (RCM)** algorithm. This minimizes matrix bandwidth and ensures that structurally proximal nodes share nearby indices.
+
+### Module 2 & 4 Advanced Datasets
+* **FAAP (Fully Autonomous Atomic Propositions):** Decontextualizes ambiguous sentences into standalone facts using the `nfliu/decontextualization` corpus. Forces a strict "Zero Pronoun" rule for safe chunking.
+* **SDRT Discourse Pruning:** Extracts Elementary Discourse Units (EDUs) from Molweni/STAC and maps rhetorical relations as DAG edges to train the GNN context filter.
+* **Arbor TDP True DAG Inference:** Actively evaluates ToolBench traces to infer parallel dependencies instead of naively sorting linear traces. Independent steps are parallelized before RCM canonicalization.
+* **SAIGuard & ARMOR-MAD:** Projects flat text into simulated Multi-Agent System (MAS) topologies. Labels hallucination contagion edges and explicitly maps Semantic Outlier Detection (SOD) scoring across the six capability dimensions of the Brick router.
 
 ### Hugging Face Repository
 * **Dataset:** [Borisz42/CTNSG-Graph-Curriculum](https://huggingface.co/datasets/Borisz42/CTNSG-Graph-Curriculum)
