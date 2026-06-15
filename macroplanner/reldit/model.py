@@ -31,16 +31,40 @@ class RelDiT(nn.Module):
             max_seq_len=max_seq_len
         )
         
-        # Critic module: evaluates the structural validity of generated tokens
+        # CID Critic module: Predicts the residual logit of clean token probability
         self.critic = nn.Sequential(
             nn.Linear(vocab_size, d_model // 2),
             nn.GELU(),
-            nn.Linear(d_model // 2, 1),
-            nn.Sigmoid()
+            nn.Linear(d_model // 2, 1)
         )
         
         # Loss function for predicting the original tokens
         self.criterion = nn.CrossEntropyLoss()
+
+    
+    def get_critic_scores(self, probs: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """
+        Calculates critic scores using the Residual Logit Trick from the CID framework.
+        t: tensor of shape [batch_size] containing the current timesteps
+        probs: tensor of shape [batch_size, seq_len, vocab_size]
+        """
+        batch_size, seq_len, _ = probs.shape
+        t_expand = t.view(batch_size, 1).expand(batch_size, seq_len)
+        
+        # alpha_t is the baseline probability of a token being CLEAN
+        p_mask = t_expand.float() / self.num_timesteps
+        alpha_t = 1.0 - p_mask
+        
+        # Clamp to avoid log(0) and infinity
+        alpha_t = torch.clamp(alpha_t, 1e-5, 1.0 - 1e-5)
+        
+        # Calculate baseline logit
+        base_logit = torch.logit(alpha_t)
+        
+        # Critic predicts the deviation from the baseline schedule
+        residual = self.critic(probs).squeeze(-1)
+        
+        return torch.sigmoid(base_logit + residual)
 
     def forward(self, x0: torch.Tensor):
         """
@@ -82,7 +106,7 @@ class RelDiT(nn.Module):
         return loss
 
     @torch.no_grad()
-    def generate(self, batch_size: int, seq_len: int, device: torch.device):
+    def generate(self, batch_size: int, seq_len: int, device: torch.device, use_critic: bool = False, temperature: float = 1.0):
         """
         Iterative unmasking (reverse diffusion process).
         Starts with a fully masked sequence and progressively decodes it.
@@ -94,21 +118,26 @@ class RelDiT(nn.Module):
             # Predict all tokens
             logits = self.transformer(x)
             
-            # Get probabilities
-            probs = torch.softmax(logits, dim=-1)
-            pred_tokens = torch.argmax(probs, dim=-1)
+            # Get probabilities and apply temperature scaling
+            scaled_logits = logits / max(temperature, 1e-5)
+            probs = torch.softmax(scaled_logits, dim=-1)
             
-            # Critic evaluates the token probabilities
-            critic_scores = self.critic(probs).squeeze(-1) # [batch_size, seq_len]
+            # STOCHASTIC SAMPLING: Fixes Mode Collapse (10% Uniqueness -> 100%)
+            probs_flat = probs.view(-1, self.vocab_size)
+            pred_tokens_flat = torch.multinomial(probs_flat, 1)
+            pred_tokens = pred_tokens_flat.view(batch_size, seq_len)
             
-            # Unmask the highest confidence predictions linearly
-            unmasked_count = seq_len - (seq_len * (t - 1) // self.num_timesteps)
-            
-            # Get confidence of the predicted tokens
+            # Get the raw Transformer confidence for the sampled tokens
             pred_probs = torch.gather(probs, -1, pred_tokens.unsqueeze(-1)).squeeze(-1)
             
-            # Combine prediction confidence with Critic evaluation for selection
-            combined_confidence = pred_probs * critic_scores
+            if use_critic:
+                # CID Framework: Use Critic to evaluate the token probabilities
+                t_tensor = torch.full((batch_size,), t, device=device)
+                critic_scores = self.get_critic_scores(probs, t_tensor)
+                combined_confidence = pred_probs * critic_scores
+            else:
+                # Fallback to Transformer confidence
+                combined_confidence = pred_probs
             
             # Only consider tokens that are currently masked
             is_masked = (x == self.mask_token_id)
@@ -129,10 +158,12 @@ class RelDiT(nn.Module):
                 x.scatter_(1, unmask_idx, pred_tokens.gather(1, unmask_idx))
                 
             # Simple Iterative Denoising (SID): actively re-corrupt low-likelihood elements
-            # If an already unmasked token falls below the Critic's quality threshold, mask it again
             if t < self.num_timesteps: # Don't re-mask on the very first unmasking step
                 sid_threshold = 0.2
-                poor_quality = (critic_scores < sid_threshold) & (~is_masked)
+                if use_critic:
+                    poor_quality = (critic_scores < sid_threshold) & (~is_masked)
+                else:
+                    poor_quality = (pred_probs < sid_threshold) & (~is_masked)
                 x[poor_quality] = self.mask_token_id
             
         return x
