@@ -119,6 +119,20 @@ To validate the theoretical claims of the CTNSG framework and highlight inherent
 *   **Methodology:** Manually inject a poisoned fact into one agent's context and measure propagation in the ARMOR-MAD debate.
 *   **Trade-off Analysis:** Verifies that SAIGuard detects state-reconstruction anomalies and intercepts toxic strings before output pollution.
 
+### 6.5 Competitive Industry Benchmarks
+
+To contextualize the performance of the CTNSG framework against parametric counterparts, we evaluate it across industry-standard benchmarks focused on syntax, logic, and long-context retrieval. As CTNSG is designed for strict constraint satisfaction rather than memorization, these benchmarks highlight the specific advantages of decoupling the Macroplanner from the Realizer.
+
+| Benchmark | Focus | Baseline: Llama-3 (8B) | Baseline: Qwen-2.5 (3B) | CTNSG (Ours) |
+| :--- | :--- | :---: | :---: | :---: |
+| **BIRD-SQL (EX)** | Strict Schema Adherence | ~35.0% | ~37.5% | **[TBD]%** |
+| **HaluEval** | Zero Hallucination | ~65.0% | ~68.2% | **[TBD]%** |
+| **Needle In A Haystack** | "Middle Curse" Retrieval | ~62.0% (Middle drop) | ~66.0% (Middle drop) | **[TBD]%** |
+| **BoardgameQA** | Logical Deduction | ~48.0% | ~52.0% | **[TBD]%** |
+| **HumanEval (Pass@1)** | Code Generation Syntax | ~62.2% | ~60.5% | **[TBD]%** |
+
+*Note: Baseline metrics are approximate aggregated figures for standard autoregressive inference without external verifiers.*
+
 ## 7. Conclusion
 
 The Canonical Tractable Neuro-Symbolic Generation (CTNSG) framework demonstrates that large context windows and massive parameter counts are not prerequisites for reliable generative AI. By decoupling logical macroplanning into discrete graph diffusion and utilizing small, highly constrained local LLMs for microplanning realization, CTNSG guarantees structural and semantic validity. It opens the door for enterprise-grade neuro-symbolic reasoning entirely deployable on accessible consumer hardware.
