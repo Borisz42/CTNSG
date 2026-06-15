@@ -92,7 +92,22 @@ This module guarantees multi-agent stability, privacy, and continuous alignment.
 
 * **Distributed Scaling:** The multi-agent cluster communicates over an **EVPN-VXLAN infrastructure** equipped with Equal-Cost Multi-Path (ECMP) and queue-pair-aware traffic distribution to eliminate wide-area network latency and synchronization stalls. 
 
-## 6. Repository Structure
+## 6. Training Data & Hugging Face Integration
+
+The CTNSG framework trains on a progressive graph curriculum combining **WebNLG (v3.0)**, **ATOMIC**, and **Spider**. 
+The raw text and schema rules have been fully preprocessed, mathematically canonicalized, and hosted as compressed PyTorch binaries on Hugging Face.
+
+### Preprocessing & Topology
+* **Node Embeddings:** All text nodes (entities, events, tables, columns) are embedded into continuous 256-dimensional features using `sentence-transformers/all-MiniLM-L6-v2`.
+* **Causal Reasoning (ATOMIC):** Instead of generating 200,000 disconnected star-graphs, the pipeline employs a strict **Entity Re-use Mechanism**. Shared events and effects are stitched together, compressing the entire dataset into a single, highly dense, multi-hop Directed Acyclic Graph (DAG) with 79,608 unique nodes and 181,278 directed edges.
+* **SQL Generation (Spider):** Natural language questions are topologically routed into database schemas. The schemas are structured as DAGs (Tables $\rightarrow$ Columns), ensuring the Macroplanner strictly adheres to syntax-valid schema limits.
+* **Canonicalization:** To ensure the Graph VQ-Transformer can compress the graph losslessly, the adjacency matrices are mathematically sorted using the **Reverse Cuthill-McKee (RCM)** algorithm. This minimizes matrix bandwidth and ensures that structurally proximal nodes share nearby indices.
+
+### Hugging Face Repository
+* **Dataset:** [Borisz42/CTNSG-Graph-Curriculum](https://huggingface.co/datasets/Borisz42/CTNSG-Graph-Curriculum)
+* **Usage:** Use `dataset.py` at the root of the repository to stream the `.pt` tensors directly into your local or Kaggle PyTorch `DataLoader`.
+
+## 7. Repository Structure
 
 This monorepo is organized into the following modules to reflect the fully decoupled nature of the CTNSG pipeline:
 
@@ -101,8 +116,9 @@ This monorepo is organized into the following modules to reflect the fully decou
 * `/realizer`: (Module 3) VNPool, LoRA injection, $\mathcal{O}(1)$ grammar parsers, CUDA kernels.
 * `/verification`: (Module 4) SMT solvers, SHACL constraints, agent routing.
 * `/contracts`: System-wide schemas (dataclasses/pydantic) defining inter-module data flow.
+* `/data_pipeline`: Scripts for parsing, RCM canonicalization, and pushing the graph datasets to Hugging Face.
+* `/dataset.py`: PyTorch DataLoader for streaming the serialized graphs from Hugging Face.
 * `/docs`: Expanded documentation including architecture details and hardware budgeting.
-
 ## 7. Hardware Strategy
 
 This framework is optimized for a hybrid compute environment:
