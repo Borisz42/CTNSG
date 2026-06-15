@@ -17,7 +17,7 @@ Adapts the compressed $D_{GVT}$ representations to the $D_{LLM}$ dimension using
 ### 4. `injector.py` (Textualization Scaffold)
 Relying purely on soft prompts causes catastrophic hallucination of opaque entities. This injector utilizes a **Textualization Scaffold**, strictly concatenating the prompt in the order: `[8_VN_Tokens, Textualized_Graph_Embeddings, User_Query]`. This anchors the abstract topological embeddings to explicit semantic triples.
 
-### 5. `model.py` (Calibrated LoRA Realizer)
+### 5. `model.py` (Strict Calibrated LoRA Realizer)
 The master wrapper that connects the pipeline. Crucially, soft prompt tuning on dense graph topologies suffers from optimization collapse if the LLM backbone remains entirely frozen. 
-- Using the `peft` library, this script injects **Low-Rank Adaptation (LoRA)** adapters into the Qwen LLM's `q_proj` and `v_proj` layers.
+- The `peft` library is a **strict requirement**. This script injects **Low-Rank Adaptation (LoRA)** adapters into the Qwen LLM's `q_proj` and `v_proj` layers, keeping the adapters actively trainable during projection.
 - It enforces strict grid-searched calibration: **Rank $r=16$**, **$\alpha=32$**, and **Dropout $0.05$**, ensuring stable gradient flow directly from the LLM outputs all the way back into the Perceiver IO pooler.

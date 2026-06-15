@@ -14,7 +14,8 @@ Because graph tokens ordered by Reverse Cuthill-McKee (RCM) have dependencies in
 - It acts as the noise-prediction backbone, attending to the entire corrupted sequence at once to predict the unmasked categorical logits for the RVQ arrays.
 - It bypasses the causal masking bottleneck inherent in autoregressive LLMs, accelerating parallel graph generation.
 
-### 3. `model.py` (RelDiT Generator)
+### 3. `model.py` (RelDiT Generator with SID & Critic)
 The orchestrator script that ties the schedule and the transformer together. 
 - **Training Mode:** Applies random masking according to the diffusion schedule and computes the categorical Cross-Entropy loss against the true GVT tokens.
 - **Generation Mode (Iterative Unmasking):** Starts with a fully masked sequence (`[MASK, MASK, MASK...]`) and iteratively unmasks the most confident token predictions step-by-step until a complete, valid topological token sequence is synthesized.
+- **Critic & SID:** Incorporates a parallel **Critic module** to actively evaluate intermediate states and **Simple Iterative Denoising (SID)** to re-corrupt low-likelihood topological elements during generation, preventing compounding errors.

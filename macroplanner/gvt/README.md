@@ -4,10 +4,13 @@ This module forms the foundation of the Macroplanner in the CTNSG framework. Its
 
 ## Key Components
 
-### 1. `encoder.py` (Graph Attention Network - GAT)
-We utilize **PyTorch Geometric (PyG)** to implement a Graph Attention Network. The GATConv layers dynamically weigh the importance of neighbor nodes, allowing the continuous vectors to capture rich, localized topological context before quantization. 
+### 1. `encoder.py` (Graph VQ-Transformer - GVT)
+We utilize a pure **TransformerEncoder** architecture. The continuous vectors are processed through multi-head self-attention, allowing them to capture rich topological context before quantization. This removes the dependency on PyTorch Geometric's GAT layers, operating purely on canonicalized sequences.
 
-### 2. `ordering.py` (Reverse Cuthill-McKee Sequence Canonicalization)
+### 2. `rope.py` (Rotary Position Embeddings - RoPE)
+Implements 1D Rotary Position Embeddings optimized for sequences derived from graphs. When paired with RCM, it mathematically guarantees exact structural reconstruction without needing continuous edge attributes.
+
+### 3. `ordering.py` (Reverse Cuthill-McKee Sequence Canonicalization)
 Graphs lack a natural left-to-right order, making them notoriously difficult for sequence models to predict. This module implements the **Reverse Cuthill-McKee (RCM)** heuristic algorithm. By minimizing the bandwidth of the adjacency matrix, RCM provides a canonical, structurally meaningful sequence order, drastically reducing the state-space ambiguity for the downstream diffusion model.
 
 ### 3. `quantizer.py` (Residual Vector Quantization - RVQ)
