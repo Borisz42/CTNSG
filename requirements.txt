@@ -4,7 +4,8 @@ torchvision
 torchaudio
 
 # Graph Processing
-dgl>=2.1.0
+torch_geometric>=2.5.0
+scipy>=1.10.0
 networkx>=3.0
 
 # LLM Syntax Realizer & Grammar Constraints
