@@ -54,23 +54,22 @@ class VNPoolRealizer(nn.Module):
         Injects tightly calibrated LoRA adapters into the LLM.
         Explicitly enforces r=16, alpha=32, dropout=0.05 on q_proj and v_proj.
         """
-        try:
-            from peft import LoraConfig, get_peft_model
-            
-            # Target Qwen's standard attention projections
-            lora_config = LoraConfig(
-                r=16,
-                lora_alpha=32,
-                target_modules=["q_proj", "v_proj"],
-                lora_dropout=0.05,
-                bias="none",
-                task_type="CAUSAL_LM"
-            )
-            
-            self.llm = get_peft_model(self.llm, lora_config)
-            print("[VNPool] Successfully configured LoRA (r=16, a=32, d=0.05) on the LLM backbone.")
-        except ImportError:
-            print("[Warning] `peft` library not found. LLM LoRA stabilization is inactive.")
+        from peft import LoraConfig, get_peft_model
+        
+        # Target Qwen's standard attention projections
+        lora_config = LoraConfig(
+            r=16,
+            lora_alpha=32,
+            target_modules=["q_proj", "v_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM"
+        )
+        
+        self.llm = get_peft_model(self.llm, lora_config)
+        # Ensure LoRA adapters are actively trained
+        self.llm.train()
+        print("[VNPool] Successfully configured and activated LoRA (r=16, a=32, d=0.05) on the LLM backbone.")
 
     def forward(self, discrete_indices: torch.Tensor, text_graph_emb: torch.Tensor, query_emb: torch.Tensor):
         """

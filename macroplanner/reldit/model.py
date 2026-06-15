@@ -31,6 +31,14 @@ class RelDiT(nn.Module):
             max_seq_len=max_seq_len
         )
         
+        # Critic module: evaluates the structural validity of generated tokens
+        self.critic = nn.Sequential(
+            nn.Linear(vocab_size, d_model // 2),
+            nn.GELU(),
+            nn.Linear(d_model // 2, 1),
+            nn.Sigmoid()
+        )
+        
         # Loss function for predicting the original tokens
         self.criterion = nn.CrossEntropyLoss()
 
@@ -87,17 +95,23 @@ class RelDiT(nn.Module):
             probs = torch.softmax(logits, dim=-1)
             pred_tokens = torch.argmax(probs, dim=-1)
             
+            # Critic evaluates the token probabilities
+            critic_scores = self.critic(probs).squeeze(-1) # [batch_size, seq_len]
+            
             # Unmask the highest confidence predictions linearly
             unmasked_count = seq_len - (seq_len * (t - 1) // self.num_timesteps)
             
             # Get confidence of the predicted tokens
             pred_probs = torch.gather(probs, -1, pred_tokens.unsqueeze(-1)).squeeze(-1)
             
+            # Combine prediction confidence with Critic evaluation for selection
+            combined_confidence = pred_probs * critic_scores
+            
             # Only consider tokens that are currently masked
             is_masked = (x == self.mask_token_id)
             
             # Force unmasked tokens to have low confidence so we don't pick them again
-            pred_probs[~is_masked] = -1.0
+            combined_confidence[~is_masked] = -1.0
             
             # Find the top-k most confident masked tokens to unmask
             num_to_unmask = max(1, seq_len // self.num_timesteps)
@@ -106,10 +120,17 @@ class RelDiT(nn.Module):
             num_to_unmask = min(num_to_unmask, is_masked.sum(dim=1).min().item())
             
             if num_to_unmask > 0:
-                _, unmask_idx = torch.topk(pred_probs, num_to_unmask, dim=-1)
+                _, unmask_idx = torch.topk(combined_confidence, num_to_unmask, dim=-1)
                 
                 # Scatter the predictions into x
                 x.scatter_(1, unmask_idx, pred_tokens.gather(1, unmask_idx))
+                
+            # Simple Iterative Denoising (SID): actively re-corrupt low-likelihood elements
+            # If an already unmasked token falls below the Critic's quality threshold, mask it again
+            if t < self.num_timesteps: # Don't re-mask on the very first unmasking step
+                sid_threshold = 0.2
+                poor_quality = (critic_scores < sid_threshold) & (~is_masked)
+                x[poor_quality] = self.mask_token_id
             
         return x
 
