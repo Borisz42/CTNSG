@@ -74,7 +74,10 @@ class RelDiT(nn.Module):
         mask_flat = mask.view(-1)
         
         # Calculate unweighted cross entropy on masked tokens
-        loss = self.criterion(logits_flat[mask_flat], targets_flat[mask_flat])
+        if mask_flat.sum() == 0:
+            loss = torch.tensor(0.0, device=device, requires_grad=True)
+        else:
+            loss = self.criterion(logits_flat[mask_flat], targets_flat[mask_flat])
         
         return loss
 

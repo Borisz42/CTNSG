@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 class PSDDSemanticPrior(nn.Module):
     """
     Probabilistic Sentential Decision Diagrams (PSDD) Semantic Prior.
     Used for constraining token budgets upstream before generation via TruncProof,
     and evaluating the structural intent distribution.
+    Includes Projected Gradient Descent (PGD) for enforcing soft constraints.
     """
     def __init__(self, vocab_size: int = 64):
         super().__init__()
@@ -19,6 +21,26 @@ class PSDDSemanticPrior(nn.Module):
         """
         probs = torch.softmax(self.node_log_probs, dim=-1)
         return torch.prod(probs[tokens], dim=-1)
+
+    def optimize_soft_constraints_pgd(self, target_distribution: torch.Tensor, steps: int = 50, lr: float = 0.01):
+        """
+        Projected Gradient Descent (PGD) over the PSDD probabilities to enforce soft constraints
+        (e.g., ensuring certain topological tokens are favored based on dynamic policies).
+        """
+        optimizer = optim.SGD([self.node_log_probs], lr=lr)
+        
+        for _ in range(steps):
+            optimizer.zero_grad()
+            current_probs = torch.softmax(self.node_log_probs, dim=-1)
+            
+            # Loss is KL divergence between target distribution and current PSDD distribution
+            loss = nn.KLDivLoss(reduction='batchmean')(torch.log(current_probs + 1e-8), target_distribution)
+            loss.backward()
+            optimizer.step()
+            
+            # Projection step: ensuring log_probs don't explode
+            with torch.no_grad():
+                self.node_log_probs.clamp_(-10, 10)
 
 class TruncProofOptimizer:
     """
