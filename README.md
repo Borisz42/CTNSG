@@ -92,3 +92,19 @@ This module guarantees multi-agent stability, privacy, and continuous alignment.
 
 * **Distributed Scaling:** The multi-agent cluster communicates over an **EVPN-VXLAN infrastructure** equipped with Equal-Cost Multi-Path (ECMP) and queue-pair-aware traffic distribution to eliminate wide-area network latency and synchronization stalls. 
 
+## 6. Repository Structure
+
+This monorepo is organized into the following modules to reflect the fully decoupled nature of the CTNSG pipeline:
+
+* `/macroplanner`: (Module 1) Graph VQ-Transformer, RelDiT, Graph topological diffusion.
+* `/orchestrator`: (Module 2) Task DAG execution, PSDD compilation, SDRT-GNN filtering.
+* `/realizer`: (Module 3) VNPool, LoRA injection, $\mathcal{O}(1)$ grammar parsers, CUDA kernels.
+* `/verification`: (Module 4) SMT solvers, SHACL constraints, agent routing.
+* `/contracts`: System-wide schemas (dataclasses/pydantic) defining inter-module data flow.
+* `/docs`: Expanded documentation including architecture details and hardware budgeting.
+
+## 7. Hardware Strategy
+
+This framework is optimized for a hybrid compute environment:
+* **Training / Heavy Workloads:** Kaggle free tier (P100 / dual T4, 13-16GB VRAM).
+* **Local Inference & Debugging:** Consumer-grade GPU (e.g., RTX 3070 8GB VRAM) running highly efficient local syntax models (e.g., Qwen-2.5-3B-Instruct) to leave sufficient memory for the GVT and RelDiT macroplanning modules.
