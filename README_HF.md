@@ -20,11 +20,15 @@ This minimizes the adjacency-matrix bandwidth, ensuring that structurally proxim
 ### Topological Logic
 *   **ATOMIC** events are processed using an Entity Re-use Mechanism to create multi-hop Directed Acyclic Graphs (DAGs) representing deep causal chains.
 *   **Spider** text-to-SQL logic queries are structured into schema DAGs (Tables -> Columns).
+*   **Arbor TDP:** Linear agent traces are evaluated to find independent steps and mapped into true parallel DAGs.
+*   **SDRT:** Discourse parsing maps Elementary Discourse Units (EDUs) connected by rhetorical relations.
+*   **Verification:** SAIGuard multi-agent contagion graphs and Brick Router chat transcripts with Semantic Outlier Detection (SOD) scoring.
 
 ## Splits
 - WebNLG (v3.0): 13,211 train
 - ATOMIC: 202,271 train (Causal Reasoning)
 - Spider: 7,000 train (SQL Generation)
+- FAAP (Fully Autonomous Atomic Propositions): 6,812 train (Decontextualization)
 
 ## Privacy & Legal
 This dataset complies with the Right to be Forgotten via the CTNSG TRACE module architecture. 

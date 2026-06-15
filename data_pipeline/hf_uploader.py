@@ -35,11 +35,15 @@ This minimizes the adjacency-matrix bandwidth, ensuring that structurally proxim
 ### Topological Logic
 *   **ATOMIC** events are processed using an Entity Re-use Mechanism to create multi-hop Directed Acyclic Graphs (DAGs) representing deep causal chains.
 *   **Spider** text-to-SQL logic queries are structured into schema DAGs (Tables -> Columns).
+*   **Arbor TDP:** Linear agent traces are evaluated to find independent steps and mapped into true parallel DAGs.
+*   **SDRT:** Discourse parsing maps Elementary Discourse Units (EDUs) connected by rhetorical relations.
+*   **Verification:** SAIGuard multi-agent contagion graphs and Brick Router chat transcripts with Semantic Outlier Detection (SOD) scoring.
 
 ## Splits
 - WebNLG (v3.0): 13,211 train
 - ATOMIC: 202,271 train (Causal Reasoning)
 - Spider: 7,000 train (SQL Generation)
+- FAAP (Fully Autonomous Atomic Propositions): 6,812 train (Decontextualization)
 
 ## Privacy & Legal
 This dataset complies with the Right to be Forgotten via the CTNSG TRACE module architecture. 
@@ -57,18 +61,28 @@ WebNLG and Spider subsets are provided under CC BY-SA 4.0.
         repo_type="dataset"
     )
     
-    data_file = "processed_data/ctnsg_curriculum.pt"
-    if os.path.exists(data_file):
-        print("Uploading serialized PyTorch tensors...")
-        api.upload_file(
-            path_or_fileobj=data_file,
-            path_in_repo="ctnsg_curriculum.pt",
-            repo_id=repo_name,
-            repo_type="dataset"
-        )
-        print("Upload complete!")
-    else:
-        print(f"Error: {data_file} not found. Run download_and_preprocess.py first.")
+    files_to_upload = [
+        "ctnsg_curriculum.pt",
+        "faap_instructions_full.jsonl",
+        "sdrt_graphs_full.pt",
+        "arbor_graphs_full.pt",
+        "verification_graphs_full.pt"
+    ]
+    
+    print("Uploading serialized PyTorch tensors and JSONL instructions...")
+    for f_name in files_to_upload:
+        data_file = os.path.join("processed_data", f_name)
+        if os.path.exists(data_file):
+            print(f"Uploading {f_name}...")
+            api.upload_file(
+                path_or_fileobj=data_file,
+                path_in_repo=f_name,
+                repo_id=repo_name,
+                repo_type="dataset"
+            )
+        else:
+            print(f"Warning: {data_file} not found. Skipping.")
+    print("Upload complete!")
 
 if __name__ == "__main__":
     token = os.environ.get("HF_TOKEN")

@@ -16,13 +16,32 @@ def run_test():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on {device}")
     
-    print("\n--- 1. Initialize Global Orchestrator ---")
+    print("\n--- 1. Load Preprocessed Supervisor Datasets (Module 2 & 4) ---")
+    import json
+    def load_pt(path):
+        return torch.load(path) if os.path.exists(path) else []
+    
+    faap_data = []
+    if os.path.exists('processed_data/faap_instructions_full.jsonl'):
+        with open('processed_data/faap_instructions_full.jsonl', 'r', encoding='utf-8') as f:
+            faap_data = [json.loads(line) for line in f]
+    print(f"Loaded {len(faap_data)} FAAP instruction pairs.")
+    
+    sdrt_graphs = load_pt('processed_data/sdrt_graphs_full.pt')
+    arbor_graphs = load_pt('processed_data/arbor_graphs_full.pt')
+    verification_graphs = load_pt('processed_data/verification_graphs_full.pt')
+    
+    print(f"Loaded {len(sdrt_graphs)} SDRT Discourse Graphs.")
+    print(f"Loaded {len(arbor_graphs)} Arbor TDP True DAGs.")
+    print(f"Loaded {len(verification_graphs)} SAIGuard/Brick Interaction Graphs.")
+
+    print("\n--- 2. Initialize Global Orchestrator ---")
     planner = ArborPlanner(input_dim=512, hidden_dim=256).to(device)
     global_intent = torch.randn(1, 512).to(device)
     decoupled_plan = planner.decouple_plan(global_intent)
     print("Decoupled Plan Confidence:", decoupled_plan['confidence'])
     
-    print("\n--- 2. GVT Training Loop ---")
+    print("\n--- 3. GVT Training Loop ---")
     gvt = GraphVQTransformer(in_channels=256, hidden_channels=256, num_embeddings=64, num_quantizers=4).to(device)
     gvt_optimizer = optim.AdamW(gvt.parameters(), lr=3e-4)
     num_nodes = 5
@@ -42,7 +61,7 @@ def run_test():
         gvt_optimizer.step()
         print(f"Epoch {epoch+1} | GVT Loss: {total_loss.item():.4f}")
         
-    print("\n--- 3. RelDiT Training Loop ---")
+    print("\n--- 4. RelDiT Training Loop ---")
     reldit = RelDiT(vocab_size=64, d_model=256).to(device)
     reldit_optimizer = optim.AdamW(reldit.parameters(), lr=1e-4)
     
@@ -56,7 +75,7 @@ def run_test():
         reldit_optimizer.step()
         print(f"Epoch {epoch+1} | RelDiT Loss: {loss.item():.4f}")
         
-    print("\n--- 4. Realizer Inference Pipeline ---")
+    print("\n--- 5. Realizer Inference Pipeline ---")
     realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256)
     inference_graph = DiscourseGraph(
         graph_id="infer_001",
