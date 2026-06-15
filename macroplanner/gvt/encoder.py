@@ -71,16 +71,19 @@ class GraphEncoder(nn.Module):
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor, batch: torch.Tensor = None):
         """
         Args:
-            x: Node features [num_nodes, in_channels]
+            x: Node features [batch_size, num_nodes, in_channels] or [num_nodes, in_channels]
             edge_index: Graph connectivity [2, num_edges] (structure implicitly encoded by RoPE)
             batch: Batch vector [num_nodes]
         Returns:
-            node_embeddings: Latent representations of nodes [num_nodes, hidden_channels]
-            graph_embeddings: Pooled representation of the entire graph [num_graphs, hidden_channels]
+            node_embeddings: Latent representations of nodes
+            graph_embeddings: Pooled representation of the entire graph
         """
-        N, C = x.shape
+        is_2d = x.dim() == 2
+        if is_2d:
+            x = x.unsqueeze(0)
+            
+        B, N, C = x.shape
         h = self.in_proj(x)
-        h = h.unsqueeze(0) # [1, N, hidden_channels]
         
         cos, sin = self.rope(h, seq_len=N)
         
@@ -88,15 +91,20 @@ class GraphEncoder(nn.Module):
             h = layer(h, cos, sin, mask=None)
             
         h = self.norm(h)
-        h = h.squeeze(0) # [N, hidden_channels]
         
-        if batch is not None:
+        if is_2d:
+            h = h.squeeze(0) # [N, hidden_channels]
+            
+        if batch is not None and is_2d:
             try:
                 from torch_geometric.nn import global_mean_pool
                 graph_emb = global_mean_pool(h, batch)
             except ImportError:
                 graph_emb = h.mean(dim=0, keepdim=True)
         else:
-            graph_emb = h.mean(dim=0, keepdim=True)
+            if is_2d:
+                graph_emb = h.mean(dim=0, keepdim=True)
+            else:
+                graph_emb = h.mean(dim=1)
             
         return h, graph_emb

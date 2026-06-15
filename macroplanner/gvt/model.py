@@ -41,26 +41,40 @@ class GraphVQTransformer(nn.Module):
         # the graph topology/features to calculate Reconstruction Loss.
         # We focus on the tokenization (Encoder + RVQ) which is the handoff to Module 3.
         
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, batch: torch.Tensor = None):
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor = None, batch: torch.Tensor = None):
         """
         Forward pass for training the tokenizer.
         """
-        # Canonicalize the graph order using Reverse Cuthill-McKee (RCM)
-        num_nodes = x.size(0)
-        rcm_perm = get_rcm_ordering(edge_index, num_nodes)
+        is_2d = x.dim() == 2
         
-        # Permute input to canonical order
-        x_rcm = x[rcm_perm]
-        
-        # PyG edge_index needs re-mapping for the permuted nodes
-        inv_perm = torch.empty_like(rcm_perm)
-        inv_perm[rcm_perm] = torch.arange(num_nodes, device=x.device)
-        edge_index_rcm = inv_perm[edge_index]
-        
-        if batch is not None:
-            batch_rcm = batch[rcm_perm]
+        if is_2d:
+            # Canonicalize the graph order using Reverse Cuthill-McKee (RCM)
+            num_nodes = x.size(0)
+            if edge_index is not None and edge_index.size(1) > 0:
+                rcm_perm = get_rcm_ordering(edge_index, num_nodes)
+                # Permute input to canonical order
+                x_rcm = x[rcm_perm]
+                
+                # PyG edge_index needs re-mapping for the permuted nodes
+                inv_perm = torch.empty_like(rcm_perm)
+                inv_perm[rcm_perm] = torch.arange(num_nodes, device=x.device)
+                edge_index_rcm = inv_perm[edge_index]
+                
+                if batch is not None:
+                    batch_rcm = batch[rcm_perm]
+                else:
+                    batch_rcm = None
+            else:
+                rcm_perm = torch.arange(num_nodes, device=x.device)
+                x_rcm = x
+                edge_index_rcm = edge_index
+                batch_rcm = batch
         else:
-            batch_rcm = None
+            # 3D Batched Input: (B, N, C). RCM is assumed to be already applied or implicitly encoded
+            x_rcm = x
+            edge_index_rcm = edge_index
+            batch_rcm = batch
+            rcm_perm = None
             
         # Encode graph into continuous latents
         z, graph_emb = self.encoder(x_rcm, edge_index_rcm, batch_rcm)
