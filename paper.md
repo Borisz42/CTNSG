@@ -100,7 +100,7 @@ To validate the theoretical claims of the CTNSG framework and highlight inherent
 **Test 5: $\mathcal{O}(1)$ Decoding Throughput**
 *   **Goal:** Prove that Parser Stack Classification (PSC) isolates masking overhead from the LLM's vocabulary size.
 *   **Methodology:** Benchmark end-to-end decoding throughput (tokens per second) using massive vocabulary models (e.g., Llama-3 at 128k) against complex programming language grammars.
-*   **Trade-off Analysis:** Demonstrates computing masks up to 770$\times$ faster than traditional Grammar-Constrained Decoding (GCD), achieving unconstrained speeds. Weakness lies in the offline pre-computation memory footprint (time and RAM required to compile finite-state automata).
+*   **Trade-off Analysis:** Demonstrates computing masks up to 770 $\times$ faster than traditional Grammar-Constrained Decoding (GCD), achieving unconstrained speeds. Weakness lies in the offline pre-computation memory footprint (time and RAM required to compile finite-state automata).
 
 **Test 6: TruncProof Context Bounding**
 *   **Goal:** Test the ability to avoid arbitrary context-window cutoffs.
