@@ -6,7 +6,7 @@ The CTNSG pipeline is heavily constrained to ensure deployability on consumer ed
 
 The primary goal of the local inference setup is achieving $\mathcal{O}(1)$ syntax latency without Out-of-Memory (OOM) crashes.
 
-* **Syntax Model:** Qwen-2.5-3B-Instruct (approx. 6GB fp16, or 2.5GB in 4-bit quantization).
+* **Syntax Model:** Qwen-3.5-4B-Instruct (approx. 8GB fp16, or 3.5GB in 4-bit quantization).
 * **Macroplanner Margin:** Leaves ~4-5GB VRAM strictly for the Graph VQ-Transformer, RelDiT, and PyTorch overhead.
 * **KV Cache:** Dynamic allocation managed by the **Maestro hierarchical scheduler**, which predicts memory bounds and avoids Head-of-Line blocking.
 * **Inference Kernels:** ReSET CUDA-core small-M NVFP4 kernels for maximum autoregressive speed.

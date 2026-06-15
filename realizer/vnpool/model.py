@@ -106,7 +106,7 @@ if __name__ == '__main__':
     num_nodes = 45 # Variable graph size
     n_rvq = 4
     d_gvt = 256
-    d_llm = 4096 # e.g., Qwen-2.5-3B
+    d_llm = 4096 # e.g., Qwen-3.5-4B
     
     # 1. Mock the discrete tokens coming from RelDiT/GVT
     # Codebook size K=64

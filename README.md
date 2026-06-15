@@ -129,7 +129,7 @@ This monorepo is organized into the following modules to reflect the fully decou
 
 This framework is optimized for a hybrid compute environment:
 * **Training / Heavy Workloads:** Kaggle free tier (P100 / dual T4, 13-16GB VRAM).
-* **Local Inference & Debugging:** Consumer-grade GPU (e.g., RTX 3070 8GB VRAM) running highly efficient local syntax models (e.g., Qwen-2.5-3B-Instruct) to leave sufficient memory for the GVT and RelDiT macroplanning modules.
+* **Local Inference & Debugging:** Consumer-grade GPU (e.g., RTX 3070 8GB VRAM) running highly efficient local syntax models (e.g., Qwen-3.5-4B-Instruct or Qwen-3.5-2B-Instruct) to leave sufficient memory for the GVT and RelDiT macroplanning modules.
 
 ## 9. Running the UI & LM Studio Integration
 
@@ -148,7 +148,7 @@ The CTNSG framework is a multi-stage Python pipeline (involving Graph Diffusion,
 
 However, you **can** integrate LM Studio to act as the "Base LLM" for Module 3 (The Realizer):
 
-1. **Launch LM Studio:** Open LM Studio, load a fast, local model (like `Qwen-2.5-3B-Instruct`), and start the **Local Inference Server** (usually runs on `http://localhost:1234/v1`).
+1. **Launch LM Studio:** Open LM Studio, load a fast, local model (like `Qwen-3.5-4B-Instruct`), and start the **Local Inference Server** (usually runs on `http://localhost:1234/v1`).
 2. **Run the CTNSG UI:** Start `ui_harness.py`.
 3. **Toggle Offload:** In the web UI, check the box labeled **"Offload Base LLM to LM Studio"**.
 4. **Execution:** The heavy logical math (GVT, RelDiT, SMT) will run natively in your local Python environment. Once the graph is verified, CTNSG will pass the strict grammar constraints over the local API to LM Studio, which will perform the final text generation.
