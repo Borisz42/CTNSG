@@ -125,8 +125,30 @@ This monorepo is organized into the following modules to reflect the fully decou
 * `/data_pipeline`: Scripts for parsing, RCM canonicalization, and pushing the graph datasets to Hugging Face.
 * `/dataset.py`: PyTorch DataLoader for streaming the serialized graphs from Hugging Face.
 * `/docs`: Expanded documentation including architecture details and hardware budgeting.
-## 7. Hardware Strategy
+## 8. Hardware Strategy
 
 This framework is optimized for a hybrid compute environment:
 * **Training / Heavy Workloads:** Kaggle free tier (P100 / dual T4, 13-16GB VRAM).
 * **Local Inference & Debugging:** Consumer-grade GPU (e.g., RTX 3070 8GB VRAM) running highly efficient local syntax models (e.g., Qwen-2.5-3B-Instruct) to leave sufficient memory for the GVT and RelDiT macroplanning modules.
+
+## 9. Running the UI & LM Studio Integration
+
+CTNSG provides a local web interface (built with Gradio) to visualize the multi-module neuro-symbolic pipeline in real-time.
+
+### Starting the UI
+To launch the interactive harness, simply run the following command from the root of the repository:
+```bash
+python ui_harness.py
+```
+This will start a local web server, typically accessible at `http://localhost:7860`. The dashboard allows you to input logical queries and watch the execution trace as the pipeline steps through the Orchestrator, Macroplanner, Verification, and Realizer modules.
+
+### LM Studio & Ollama Integration
+
+The CTNSG framework is a multi-stage Python pipeline (involving Graph Diffusion, SMT solvers, and PSDDs). Because of this architectural complexity, **you cannot export CTNSG as a single `.gguf` file to drag-and-drop into LM Studio.**
+
+However, you **can** integrate LM Studio to act as the "Base LLM" for Module 3 (The Realizer):
+
+1. **Launch LM Studio:** Open LM Studio, load a fast, local model (like `Qwen-2.5-3B-Instruct`), and start the **Local Inference Server** (usually runs on `http://localhost:1234/v1`).
+2. **Run the CTNSG UI:** Start `ui_harness.py`.
+3. **Toggle Offload:** In the web UI, check the box labeled **"Offload Base LLM to LM Studio"**.
+4. **Execution:** The heavy logical math (GVT, RelDiT, SMT) will run natively in your local Python environment. Once the graph is verified, CTNSG will pass the strict grammar constraints over the local API to LM Studio, which will perform the final text generation.
