@@ -18,7 +18,7 @@ curriculum_graphs = torch.load('processed_data/ctnsg_curriculum.pt')
 print(f"Loaded {len(curriculum_graphs)} graphs.")
 
 gvt = GraphVQTransformer(in_channels=256, hidden_channels=256, num_embeddings=64, num_quantizers=4).to(device)
-reldit = RelDiT(vocab_size=64, d_model=256).to(device)
+reldit = RelDiT(vocab_size=65, d_model=256).to(device)
 
 def benchmark():
     num_test_graphs = 200 # First graph is huge, rest are small. So 200 is a good sample.

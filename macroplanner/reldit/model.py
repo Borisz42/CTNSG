@@ -6,7 +6,7 @@ from .transformer import RelationalTransformer
 class RelDiT(nn.Module):
     def __init__(
         self,
-        vocab_size: int = 64,
+        vocab_size: int = 65,
         num_timesteps: int = 256,
         d_model: int = 256,
         nhead: int = 8,
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     
     batch_size = 2
     seq_len = 16
-    vocab_size = 64
+    vocab_size = 65
     
     # 1. Create dummy target tokens (from GVT)
     x0 = torch.randint(0, vocab_size, (batch_size, seq_len))

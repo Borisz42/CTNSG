@@ -107,7 +107,7 @@ def run_test():
         print(f"Epoch {epoch+1} | GVT Batched Loss: {total_loss.item():.4f}")
         
     print("\n--- 4. RelDiT Training Loop ---")
-    reldit_base = RelDiT(vocab_size=64, d_model=256).to(device)
+    reldit_base = RelDiT(vocab_size=65, d_model=256).to(device)
     
     if num_gpus > 1:
         reldit = nn.DataParallel(reldit_base)
@@ -120,7 +120,7 @@ def run_test():
         reldit_optimizer.zero_grad()
         # discrete_indices shape from GVT is [batch_size, max_seq, N]
         # We take the first codebook index per sequence token
-        tokens = discrete_indices[:, :, 0]
+        tokens = discrete_indices[:, :, 0] + 1
         
         loss = reldit(tokens)
         
