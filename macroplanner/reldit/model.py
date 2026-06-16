@@ -91,9 +91,12 @@ class RelDiT(nn.Module):
         # Predict logits
         logits = self.transformer(x_t) # [batch_size, seq_len, vocab_size]
         
+        # [CRITICAL FIX]: Upcast logits to FP32 before calculating the loss
+        logits_fp32 = logits.float()
+        
         # We only compute loss on the tokens that were masked.
         # Flatten for CrossEntropyLoss
-        logits_flat = logits.view(-1, self.vocab_size)
+        logits_flat = logits_fp32.view(-1, self.vocab_size)
         targets_flat = x0.view(-1)
         mask_flat = mask.view(-1)
         
