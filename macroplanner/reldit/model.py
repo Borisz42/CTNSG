@@ -146,10 +146,13 @@ class RelDiT(nn.Module):
             combined_confidence[~is_masked] = -1.0
             
             # Find the top-k most confident masked tokens to unmask
-            num_to_unmask = max(1, seq_len // self.num_timesteps)
-            
-            # Safety check: if there are fewer masked tokens than we want to unmask
-            num_to_unmask = min(num_to_unmask, is_masked.sum(dim=1).min().item())
+            if t == 1:
+                # Last step: unmask all remaining masked tokens
+                num_to_unmask = is_masked.sum(dim=1).max().item()
+            else:
+                num_to_unmask = max(1, seq_len // self.num_timesteps)
+                # Safety check: if there are fewer masked tokens than we want to unmask
+                num_to_unmask = min(num_to_unmask, is_masked.sum(dim=1).min().item())
             
             if num_to_unmask > 0:
                 _, unmask_idx = torch.topk(combined_confidence, num_to_unmask, dim=-1)
@@ -158,7 +161,7 @@ class RelDiT(nn.Module):
                 x.scatter_(1, unmask_idx, pred_tokens.gather(1, unmask_idx))
                 
             # Simple Iterative Denoising (SID): actively re-corrupt low-likelihood elements
-            if t < self.num_timesteps: # Don't re-mask on the very first unmasking step
+            if 1 < t < self.num_timesteps: # Don't re-mask on the very first or very last unmasking step
                 sid_threshold = 0.2
                 if use_critic:
                     poor_quality = (critic_scores < sid_threshold) & (~is_masked)
