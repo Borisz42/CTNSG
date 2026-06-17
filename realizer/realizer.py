@@ -23,7 +23,7 @@ class CTNSGRealizer:
     High-Throughput Neuro-Symbolic Decoding Engine.
     Integrates VNPool, GREATGRAMMA, MTP, and SafeLLM.
     """
-    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 512, model_name: str = "Qwen/Qwen3.5-4B"):
+    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 512, model_name: str = "Qwen/Qwen2.5-1.5B-Instruct"):
         self.vocab_size = vocab_size
         self.hidden_dim = hidden_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         edges=[]
     )
     
-    realizer = CTNSGRealizer(model_name="Qwen/Qwen3.5-0.8B") # smaller for quick test
+    realizer = CTNSGRealizer(model_name="Qwen/Qwen2.5-1.5B-Instruct") # smaller for quick test
     schema = {"type": "object"}
     result = realizer.generate(stub_graph, schema, context_lines=5, prompt="What is the capital of France?")
     print("Realizer Result:", result)

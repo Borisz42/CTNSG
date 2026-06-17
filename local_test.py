@@ -68,7 +68,7 @@ def run_test():
 
     print("\n--- 2. Arbor Orchestrator Agentic SFT (Module 2) ---")
     print("Simulating the LoRA SFT loop locally...")
-    model_name = "Qwen/Qwen1.5-0.5B" # Tiny model for fast local test
+    model_name = "Qwen/Qwen2.5-1.5B-Instruct" # Target model for local test
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -102,6 +102,12 @@ def run_test():
     loss.backward()
     optimizer.step()
     print(f"Arbor SFT Single Batch Loss: {loss.item():.4f}")
+    
+    print("Saving Arbor LoRA weights...")
+    os.makedirs("ctnsg_export", exist_ok=True)
+    arbor_model.save_pretrained("ctnsg_export/arbor_lora_weights")
+    proj_layer = torch.nn.Linear(384, 256)
+    torch.save(proj_layer.state_dict(), "ctnsg_export/encoder_projection_weights.pt")
     
     # Instantiate the agentic planner (it falls back to dummy inference without a grammar processor during the test script, just verifying API signature)
     planner = ArborPlanner(llm=base_llm, tokenizer=tokenizer)
@@ -161,7 +167,7 @@ def run_test():
         print(f"Epoch {epoch+1} | RelDiT Batched Loss: {loss.item():.4f}")
         
     print("\n--- 5. Realizer Inference Pipeline ---")
-    realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256, model_name="Qwen/Qwen1.5-0.5B")
+    realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256, model_name="Qwen/Qwen2.5-1.5B-Instruct")
     inference_graph = DiscourseGraph(
         graph_id="infer_001",
         nodes=[
