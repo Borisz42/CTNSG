@@ -89,22 +89,18 @@ class RelDiT(nn.Module):
         x_t, mask = self.diffusion.add_noise(x0, t)
         
         # Predict logits
-        logits = self.transformer(x_t) # [batch_size, seq_len, vocab_size]
+        logits = self.transformer(x_t, t) # [batch_size, seq_len, vocab_size]
         
         # [CRITICAL FIX]: Upcast logits to FP32 before calculating the loss
         logits_fp32 = logits.float()
         
-        # We only compute loss on the tokens that were masked.
+        # We compute loss on all tokens (standard for predicting x_0 from x_t in diffusion)
         # Flatten for CrossEntropyLoss
         logits_flat = logits_fp32.view(-1, self.vocab_size)
         targets_flat = x0.view(-1)
-        mask_flat = mask.view(-1)
         
-        # Calculate unweighted cross entropy on masked tokens
-        if mask_flat.sum() == 0:
-            loss = torch.tensor(0.0, device=device, requires_grad=True)
-        else:
-            loss = self.criterion(logits_flat[mask_flat], targets_flat[mask_flat])
+        # Calculate unweighted cross entropy on all tokens
+        loss = self.criterion(logits_flat, targets_flat)
         
         return loss
 
@@ -118,8 +114,9 @@ class RelDiT(nn.Module):
         x = torch.full((batch_size, seq_len), self.mask_token_id, dtype=torch.long, device=device)
         
         for t in reversed(range(1, self.num_timesteps + 1)):
+            t_tensor = torch.full((batch_size,), t, device=device)
             # Predict all tokens
-            logits = self.transformer(x)
+            logits = self.transformer(x, t_tensor)
             
             # Get probabilities and apply temperature scaling
             scaled_logits = logits / max(temperature, 1e-5)
@@ -135,7 +132,6 @@ class RelDiT(nn.Module):
             
             if use_critic:
                 # CID Framework: Use Critic to evaluate the token probabilities
-                t_tensor = torch.full((batch_size,), t, device=device)
                 critic_scores = self.get_critic_scores(probs, t_tensor)
                 combined_confidence = pred_probs * critic_scores
             else:
