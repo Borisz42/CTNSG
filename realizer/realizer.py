@@ -80,7 +80,7 @@ class CTNSGRealizer:
         with torch.no_grad():
             outputs = self.llm.generate(
                 inputs_embeds=combined_embeds,
-                max_new_tokens=100,
+                max_new_tokens=1024,
                 temperature=0.7,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id
@@ -99,7 +99,8 @@ class CTNSGRealizer:
         return {
             "text": generated_text,
             "valid_citations": valid_lines,
-            "tokens_generated": outputs.size(1)
+            "tokens_generated": outputs.size(1),
+            "prompt_used": text_input
         }
 
 if __name__ == "__main__":
