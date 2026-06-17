@@ -74,9 +74,9 @@ class DualAttentionBlock(nn.Module):
         # Pre-Norm architecture (norm_first=True) with AdaLN
         x_norm1 = self.norm1(x) * (1 + scale_msa) + shift_msa
         
-        # Dual Attention
-        attn_out_s2t, _ = self.attn_src2tgt(x_norm1, x_norm1, x_norm1)
-        attn_out_t2s, _ = self.attn_tgt2src(x_norm1, x_norm1, x_norm1)
+        # Dual Attention (need_weights=False enables Memory-Efficient / Flash Attention to prevent OOM)
+        attn_out_s2t, _ = self.attn_src2tgt(x_norm1, x_norm1, x_norm1, need_weights=False)
+        attn_out_t2s, _ = self.attn_tgt2src(x_norm1, x_norm1, x_norm1, need_weights=False)
         
         # Combine channels
         attn_combined = torch.cat([attn_out_s2t, attn_out_t2s], dim=-1)
