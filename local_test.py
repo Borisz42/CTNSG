@@ -67,56 +67,25 @@ def run_test():
     print(f"Loaded {len(verification_graphs)} SAIGuard/Brick Interaction Graphs.")
 
     print("\n--- 2. Arbor Orchestrator Agentic SFT (Module 2) ---")
-    print("Simulating the LoRA SFT loop locally...")
-    model_name = "Qwen/Qwen2.5-1.5B-Instruct" # Target model for local test
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.pad_token = tokenizer.eos_token
+    print("Running a quick local LoRA SFT loop (2 samples) using train_arbor_sft...")
+    from orchestrator.arbor.train import train_arbor_sft
     
-    base_llm = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        device_map="auto",
-        torch_dtype=torch.float16
+    arbor_model, tokenizer, proj_layer = train_arbor_sft(
+        model_name="Qwen/Qwen2.5-1.5B-Instruct",
+        arbor_graphs=arbor_graphs[:2],
+        device=str(device),
+        epochs=1,
+        lr=2e-5,
+        output_dir="ctnsg_export"
     )
-    
-    lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM"
-    )
-    arbor_model = get_peft_model(base_llm, lora_config)
-    arbor_model.print_trainable_parameters()
-    
-    optimizer = optim.AdamW(arbor_model.parameters(), lr=2e-4)
-    arbor_model.train()
-    
-    prompt = "<|im_start|>system\nYou are the Arbor Supervisor.<|im_end|>\n<|im_start|>user\nTask 0<|im_end|>\n<|im_start|>assistant\n"
-    completion = "{\"nodes\": [], \"edges\": []}"
-    text = prompt + completion + "<|im_end|>"
-    
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512).to(base_llm.device)
-    outputs = arbor_model(**inputs, labels=inputs["input_ids"])
-    loss = outputs.loss
-    loss.backward()
-    optimizer.step()
-    print(f"Arbor SFT Single Batch Loss: {loss.item():.4f}")
-    
-    print("Saving Arbor LoRA weights...")
-    os.makedirs("ctnsg_export", exist_ok=True)
-    arbor_model.save_pretrained("ctnsg_export/arbor_lora_weights")
-    proj_layer = torch.nn.Linear(384, 256)
-    torch.save(proj_layer.state_dict(), "ctnsg_export/encoder_projection_weights.pt")
     
     # Instantiate the agentic planner (it falls back to dummy inference without a grammar processor during the test script, just verifying API signature)
-    planner = ArborPlanner(llm=base_llm, tokenizer=tokenizer)
+    planner = ArborPlanner(llm=arbor_model, tokenizer=tokenizer)
     subtasks = planner.generate_subtask_dag("Generate test task")
     print("Planner Inference DAG Mock:", subtasks)
 
     # Free up VRAM
     del arbor_model
-    del base_llm
     torch.cuda.empty_cache()
     
     print("\n--- 3. GVT Training Loop ---")

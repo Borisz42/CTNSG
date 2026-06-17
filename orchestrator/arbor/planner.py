@@ -30,8 +30,7 @@ class ArborPlanner:
             
         prompt = (
             "<|im_start|>system\n"
-            "You are the Arbor Supervisor. Decompose this task into a JSON DAG containing a list of sub-tasks.\n"
-            "Respond strictly in JSON format matching schema: [{\"task_id\": str, \"type\": str, \"depends_on\": List[str]}].\n"
+            "You are the Arbor Supervisor. Decompose this task into a JSON DAG.\n"
             "<|im_end|>\n"
             f"<|im_start|>user\n{user_query}<|im_end|>\n"
             "<|im_start|>assistant\n"
@@ -58,7 +57,23 @@ class ArborPlanner:
         
         try:
             dag = json.loads(response)
-            if isinstance(dag, list):
+            subtasks = []
+            if isinstance(dag, dict) and "nodes" in dag:
+                # Convert {"nodes": ["task1"], "edges": [{"source": "task1", "target": "task2"}]} to the UI's expected format
+                for node in dag.get("nodes", []):
+                    subtasks.append({
+                        "task_id": node,
+                        "type": node,
+                        "depends_on": []
+                    })
+                for edge in dag.get("edges", []):
+                    source = edge.get("source")
+                    target = edge.get("target")
+                    for st in subtasks:
+                        if st["task_id"] == target:
+                            st["depends_on"].append(source)
+                return subtasks
+            elif isinstance(dag, list):
                 return dag
             else:
                 return [dag]

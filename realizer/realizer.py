@@ -1,7 +1,7 @@
 import sys
 import os
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, LogitsProcessor
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from contracts.graph_schema import DiscourseGraph
@@ -17,6 +17,14 @@ except ImportError:
             import torch.nn as nn
             self.proj = nn.Linear(in_dim, out_dim)
         def forward(self, x): return self.proj(x)
+
+class GreatGrammaLogitsProcessor(LogitsProcessor):
+    def __init__(self, great_gramma, schema):
+        self.gg = great_gramma
+        self.psc = self.gg.compile_schema(schema)
+    
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        return self.gg.apply_transducer_masking(scores, state_id=0, psc=self.psc)
 
 class CTNSGRealizer:
     """
@@ -77,13 +85,19 @@ class CTNSGRealizer:
         combined_embeds = torch.cat([projected_prompts, text_embeds], dim=1)
         
         # 4. Generate using Base LLM
+        logits_processor = []
+        if schema:
+            lp = GreatGrammaLogitsProcessor(self.grammar, schema)
+            logits_processor.append(lp)
+            
         with torch.no_grad():
             outputs = self.llm.generate(
                 inputs_embeds=combined_embeds,
                 max_new_tokens=1024,
                 temperature=0.7,
                 do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id
+                pad_token_id=self.tokenizer.eos_token_id,
+                logits_processor=logits_processor
             )
             
         generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)

@@ -7,8 +7,8 @@ def train_arbor_sft(
     model_name: str,
     arbor_graphs,
     device: str = "cuda",
-    epochs: int = 1,
-    lr: float = 2e-4,
+    epochs: int = 3,
+    lr: float = 2e-5,
     r: int = 8,
     alpha: int = 16,
     max_length: int = 512,
@@ -41,16 +41,35 @@ def train_arbor_sft(
     arbor_model = get_peft_model(base_llm, lora_config)
     arbor_model.print_trainable_parameters()
     
+    from transformers import get_linear_schedule_with_warmup
     print("Formatting Prompt-Completion Pairs & Training...")
     optimizer = torch.optim.AdamW(arbor_model.parameters(), lr=lr)
-    arbor_model.train()
     
-    limit = min(50, len(arbor_graphs))
+    limit = min(5000, len(arbor_graphs))
+    num_training_steps = epochs * limit
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, 
+        num_warmup_steps=min(100, int(0.1 * num_training_steps)), 
+        num_training_steps=num_training_steps
+    )
+    
+    arbor_model.train()
+    from tqdm import tqdm
     for epoch in range(epochs):
         total_loss = 0
-        for i in range(limit):
-            prompt = f"<|im_start|>system\nYou are the Arbor Supervisor. Decompose this task into a JSON DAG.<|im_end|>\n<|im_start|>user\nTask {i}<|im_end|>\n<|im_start|>assistant\n"
-            completion = "{\"nodes\": [], \"edges\": []}"
+        print(f"\nStarting Epoch {epoch+1}/{epochs}...")
+        pbar = tqdm(range(limit), desc=f"Epoch {epoch+1}")
+        for idx in pbar:
+            graph = arbor_graphs[idx]
+            goal = graph.get("goal", f"Task {idx}")
+            
+            prompt = f"<|im_start|>system\nYou are the Arbor Supervisor. Decompose this task into a JSON DAG.<|im_end|>\n<|im_start|>user\n{goal}<|im_end|>\n<|im_start|>assistant\n"
+            
+            node_names = graph.get("node_names", [])
+            text_edges = graph.get("text_edges", [])
+            
+            import json
+            completion = json.dumps({"nodes": node_names, "edges": text_edges})
             text = prompt + completion + "<|im_end|>"
             
             inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
@@ -59,9 +78,14 @@ def train_arbor_sft(
             loss = outputs.loss
             loss.backward()
             optimizer.step()
+            scheduler.step()
             optimizer.zero_grad()
-            total_loss += loss.item()
-        print(f"Epoch {epoch+1} | Arbor SFT Loss: {total_loss/limit:.4f}")
+            
+            curr_loss = loss.item()
+            total_loss += curr_loss
+            pbar.set_postfix({"loss": f"{curr_loss:.4f}"})
+            
+        print(f"Epoch {epoch+1} Completed | Arbor SFT Loss: {total_loss/limit:.4f}")
         
     print("Saving Arbor LoRA weights...")
     os.makedirs(output_dir, exist_ok=True)

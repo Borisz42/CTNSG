@@ -59,15 +59,25 @@ if os.path.exists(os.path.join(export_dir, 'encoder_projection_weights.pt')):
     print("Loaded 384->256 semantic projection layer.")
 
 arbor_schema = {
-    "type": "array", 
-    "items": {
-        "type": "object", 
-        "properties": {
-            "task_id": {"type": "string"}, 
-            "type": {"type": "string"}, 
-            "depends_on": {"type": "array", "items": {"type": "string"}}
+    "type": "object",
+    "properties": {
+        "nodes": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "edges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                    "target": {"type": "string"},
+                    "relation": {"type": "string"}
+                }
+            }
         }
-    }
+    },
+    "required": ["nodes", "edges"]
 }
 arbor_processor = GreatGrammaLogitsProcessor(realizer.grammar, arbor_schema)
 planner = ArborPlanner(llm=llm, tokenizer=tokenizer, grammar_processor=arbor_processor)

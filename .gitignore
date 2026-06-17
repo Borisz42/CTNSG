@@ -33,4 +33,5 @@ data/
 outputs/
 logs/
 processed_data/
+ctnsg_export/
 stub_graph.json
