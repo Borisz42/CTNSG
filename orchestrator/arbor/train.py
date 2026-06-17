@@ -12,11 +12,24 @@ def train_arbor_sft(
     r: int = 8,
     alpha: int = 16,
     max_length: int = 512,
+    batch_size: int = None,
     output_dir: str = "ctnsg_export"
 ):
     """
     Fine-tunes the base LLM with LoRA on Arbor true DAGs to perform agentic task decomposition.
     """
+    if batch_size is None:
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            per_gpu_bs = max(1, int((vram_gb - 3) / 0.75))
+            powers_of_2 = [1, 2, 4, 8, 16, 32, 64]
+            per_gpu_bs = max([p for p in powers_of_2 if p <= per_gpu_bs], default=1)
+            batch_size = per_gpu_bs * num_gpus
+            print(f"Dynamically set batch size to {batch_size} (GPUs: {num_gpus}, VRAM/GPU: {vram_gb:.1f} GB)")
+        else:
+            batch_size = 1
+            print("CUDA not available. Defaulting batch size to 1.")
     print("Loading Base LLM for Arbor SFT...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
@@ -42,11 +55,28 @@ def train_arbor_sft(
     arbor_model.print_trainable_parameters()
     
     from transformers import get_linear_schedule_with_warmup
-    print("Formatting Prompt-Completion Pairs & Training...")
+    import json
+    
+    print("Formatting Prompt-Completion Pairs and sorting by length (Dynamic Batching)...")
     optimizer = torch.optim.AdamW(arbor_model.parameters(), lr=lr)
     
     limit = min(5000, len(arbor_graphs))
-    num_training_steps = epochs * limit
+    dataset_texts = []
+    for idx in range(limit):
+        graph = arbor_graphs[idx]
+        goal = graph.get("goal", f"Task {idx}")
+        prompt = f"<|im_start|>system\nYou are the Arbor Supervisor. Decompose this task into a JSON DAG.<|im_end|>\n<|im_start|>user\n{goal}<|im_end|>\n<|im_start|>assistant\n"
+        node_names = graph.get("node_names", [])
+        text_edges = graph.get("text_edges", [])
+        completion = json.dumps({"nodes": node_names, "edges": text_edges})
+        text = prompt + completion + "<|im_end|>"
+        dataset_texts.append(text)
+        
+    # Sort by length to minimize padding within batches
+    dataset_texts.sort(key=len)
+    
+    num_batches = (limit + batch_size - 1) // batch_size
+    num_training_steps = epochs * num_batches
     scheduler = get_linear_schedule_with_warmup(
         optimizer, 
         num_warmup_steps=min(100, int(0.1 * num_training_steps)), 
@@ -58,23 +88,17 @@ def train_arbor_sft(
     for epoch in range(epochs):
         total_loss = 0
         print(f"\nStarting Epoch {epoch+1}/{epochs}...")
-        pbar = tqdm(range(limit), desc=f"Epoch {epoch+1}")
-        for idx in pbar:
-            graph = arbor_graphs[idx]
-            goal = graph.get("goal", f"Task {idx}")
+        pbar = tqdm(range(num_batches), desc=f"Epoch {epoch+1}")
+        for b_idx in pbar:
+            batch_texts = dataset_texts[b_idx * batch_size : (b_idx + 1) * batch_size]
             
-            prompt = f"<|im_start|>system\nYou are the Arbor Supervisor. Decompose this task into a JSON DAG.<|im_end|>\n<|im_start|>user\n{goal}<|im_end|>\n<|im_start|>assistant\n"
+            inputs = tokenizer(batch_texts, return_tensors="pt", truncation=True, max_length=max_length, padding=True).to(device)
             
-            node_names = graph.get("node_names", [])
-            text_edges = graph.get("text_edges", [])
+            labels = inputs["input_ids"].clone()
+            # Mask out padding tokens from labels so they don't contribute to loss
+            labels[inputs["attention_mask"] == 0] = -100
             
-            import json
-            completion = json.dumps({"nodes": node_names, "edges": text_edges})
-            text = prompt + completion + "<|im_end|>"
-            
-            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
-            
-            outputs = arbor_model(**inputs, labels=inputs["input_ids"])
+            outputs = arbor_model(**inputs, labels=labels)
             loss = outputs.loss
             loss.backward()
             optimizer.step()
@@ -85,7 +109,7 @@ def train_arbor_sft(
             total_loss += curr_loss
             pbar.set_postfix({"loss": f"{curr_loss:.4f}"})
             
-        print(f"Epoch {epoch+1} Completed | Arbor SFT Loss: {total_loss/limit:.4f}")
+        print(f"Epoch {epoch+1} Completed | Arbor SFT Loss: {total_loss/num_batches:.4f}")
         
     print("Saving Arbor LoRA weights...")
     os.makedirs(output_dir, exist_ok=True)

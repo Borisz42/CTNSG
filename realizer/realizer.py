@@ -57,8 +57,8 @@ class CTNSGRealizer:
         self.projector = VNProjector(hidden_dim, self.llm_hidden_dim)
         if hasattr(self.projector, 'to'):
             self.projector = self.projector.to(self.device)
-        self.grammar = GreatGramma(self.tokenizer.vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"])
-        self.mtp_engine = DecompositionAndFill(hidden_dim, self.tokenizer.vocab_size)
+        self.grammar = GreatGramma(self.llm.config.vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"])
+        self.mtp_engine = DecompositionAndFill(hidden_dim, self.llm.config.vocab_size)
         self.safe_llm = SafeLLMExtractor()
         self.ot_monitor = OptimalTransportMonitor(threshold=0.3)
         
