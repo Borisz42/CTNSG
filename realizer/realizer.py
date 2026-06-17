@@ -28,8 +28,7 @@ class CTNSGRealizer:
         self.hidden_dim = hidden_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Load Base LLM in 4-bit precision to fit in 8GB VRAM alongside Macroplanner
-        print(f"Loading Base LLM: {model_name} in 4-bit precision...")
+        print(f"Loading Base LLM: {model_name}")
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
