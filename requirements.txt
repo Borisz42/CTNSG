@@ -22,3 +22,7 @@ pyshacl>=0.25.0
 
 # Optimization (FlashAttention-2 requires specific CUDA setups, un-comment when on Linux/Kaggle)
 # flash-attn>=2.5.0
+
+# Teacher LLM Distillation
+google-generativeai>=0.5.0
+tenacity>=8.0.0
