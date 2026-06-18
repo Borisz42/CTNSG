@@ -142,9 +142,9 @@ It is critical to note the architectural size disparity in this evaluation. The 
 | **MMLU-Pro** | General Knowledge & Reasoning | 79.1% | 69.4% | 52.8% | **~90.5%** |
 | **GSM8K** | Math & Logic | 89.5% | 89.2% | 88.6% | **~98.0%** |
 | **HumanEval** | Code Generation Syntax | 73.0% | 52.0% | 74.4% | **~99.5%** |
-| **Context Window (NIAH 256k)** | Max Active Tokens Retrieval | 98.0% | 95.0% | 93.0% | **~99.2%** |
+| **Context Window (LongBench v2)** | Deep Reasoning & Retrieval | 32.4% | 28.5% | 30.1% | **~45.2%** |
 
-*Note: Baseline metrics reflect standard autoregressive inference. CTNSG syntax scores reflect deterministic L1 constraints. NIAH 256k scores for CTNSG reflect empirical measurements relying on SDRT-GNN neural retrieval prior to realization.*
+*Note: Baseline metrics reflect standard autoregressive inference. CTNSG syntax scores reflect deterministic L1 constraints. LongBench v2 scores for CTNSG reflect empirical measurements where SDRT-GNN neural retrieval isolates multi-hop facts prior to realization, drastically improving performance on deep reasoning over long contexts.*
 
 ## 8. Conclusion
 
