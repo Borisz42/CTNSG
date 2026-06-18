@@ -6,8 +6,8 @@ The CTNSG pipeline is heavily constrained to ensure deployability on consumer ed
 
 The primary goal of the local inference setup is achieving $\mathcal{O}(1)$ syntax latency without Out-of-Memory (OOM) crashes.
 
-* **Base LLM (The Realizer):** Qwen-3.5-4B-Instruct (approx. 8GB fp16, or 3.5GB in 4-bit quantization). 
-* **Total Neural Parameters:** The total active neural parameter count of the framework is approximately **4.1 Billion** (4B for the Realizer + ~100M for the Macroplanner modules). This competes directly against 12B/14B unconstrained models (like Qwen-3.5 14B and Gemma-4 12B).
+* **Base LLM (The Realizer):** Phi-4-mini-instruct (approx. 7.6GB fp16, or 2.2GB in 4-bit quantization).
+* **Total Neural Parameters:** The total active neural parameter count of the framework is approximately **3.9 Billion** (~3.8B for the Realizer + ~100M for the Macroplanner modules). This competes directly against 12B/14B unconstrained models (like Qwen-3.5 14B and Gemma-4 12B).
 * **Macroplanner Margin:** Leaves ~4-5GB VRAM strictly for the Graph VQ-Transformer, RelDiT, and PyTorch overhead.
 * **KV Cache & Memory Management:** Dynamic allocation managed by the **Maestro hierarchical scheduler**, which predicts memory bounds and avoids Head-of-Line blocking. **ITME (Inference Tiered Memory Expansion)** handles proactive CPU-offloading for predictable KV cache blocks, preventing VRAM exhaustion.
 * **Inference Kernels:** ReSET CUDA-core small-M NVFP4 kernels for maximum autoregressive speed.

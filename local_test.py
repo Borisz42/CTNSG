@@ -71,7 +71,7 @@ def run_test():
     from orchestrator.arbor.train import train_arbor_sft
     
     arbor_model, tokenizer, proj_layer = train_arbor_sft(
-        model_name="Qwen/Qwen2.5-1.5B-Instruct",
+        model_name="unsloth/Phi-4-mini-instruct",
         arbor_graphs=arbor_graphs[:2],
         device=str(device),
         epochs=1,
@@ -136,7 +136,7 @@ def run_test():
         print(f"Epoch {epoch+1} | RelDiT Batched Loss: {loss.item():.4f}")
         
     print("\n--- 5. Realizer Inference Pipeline ---")
-    realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256, model_name="Qwen/Qwen2.5-1.5B-Instruct")
+    realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256, model_name="unsloth/Phi-4-mini-instruct")
     inference_graph = DiscourseGraph(
         graph_id="infer_001",
         nodes=[

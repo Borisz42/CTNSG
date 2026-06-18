@@ -27,7 +27,7 @@ When debugging or implementing, isolate your thinking to the specific module:
 
 ## 💻 Hardware Constraints
 You must write highly optimized, memory-efficient PyTorch code.
-- **Local Inference Target:** Consumer edge devices (specifically RTX 3070, 8GB VRAM). The base LLM (e.g., Qwen-3.5-4B) consumes a significant portion, leaving only ~4-5GB for the PyTorch/Macroplanner overhead.
+- **Local Inference Target:** Consumer edge devices (specifically RTX 3070, 8GB VRAM). The base LLM (e.g., Phi-4-mini-instruct) consumes a significant portion, leaving only ~4-5GB for the PyTorch/Macroplanner overhead.
 - **Training Target:** Kaggle Free Tier (GPU T4 x2, 16GB VRAM each). Ensure `batch_size` scaling, gradient accumulation, and memory offloading are actively managed to prevent OOM errors during GVT/RelDiT training. The scaling should be done in a way so that the training is also possible on consumer grade hardware (single GPU with 8GB VRAM).
 
 ## 🛠️ Agent Directives for Debugging & Implementation

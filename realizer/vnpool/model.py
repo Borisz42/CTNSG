@@ -14,7 +14,7 @@ class VNPoolRealizer(nn.Module):
         num_quantizers: int = 4,
         num_latents: int = 8,
         n_heads: int = 8,
-        d_llm: int = 4096,
+        d_llm: int = 3072,
         llm_model: nn.Module = None
     ):
         """
@@ -56,7 +56,7 @@ class VNPoolRealizer(nn.Module):
         """
         from peft import LoraConfig, get_peft_model
         
-        # Target Qwen's standard attention projections
+        # Target standard attention projections
         lora_config = LoraConfig(
             r=16,
             lora_alpha=32,
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     num_nodes = 45 # Variable graph size
     n_rvq = 4
     d_gvt = 256
-    d_llm = 4096 # e.g., Qwen-3.5-4B
+    d_llm = 3072 # e.g., Phi-4-mini
     
     # 1. Mock the discrete tokens coming from RelDiT/GVT
     # Codebook size K=64
@@ -125,7 +125,7 @@ if __name__ == '__main__':
             self.q_proj = nn.Linear(d_llm, d_llm)
             self.v_proj = nn.Linear(d_llm, d_llm)
             self.classifier = nn.Linear(d_llm, 100)
-            self.config = type('Config', (), {'model_type': 'qwen2'})()
+            self.config = type('Config', (), {'model_type': 'phi3'})()
             
         def forward(self, inputs_embeds, **kwargs):
             x = self.q_proj(inputs_embeds) + self.v_proj(inputs_embeds)

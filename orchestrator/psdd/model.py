@@ -50,7 +50,7 @@ class TruncProofOptimizer:
     def __init__(self, llm_max_context: int = 32768, schema_closure_tokens: int = 512, safety_margin: int = 128):
         """
         Args:
-            llm_max_context: Total context window of the target LLM (e.g., 32768 for Qwen-3.5).
+            llm_max_context: Total context window of the target LLM (e.g., 128000 for Phi-4-mini).
             schema_closure_tokens: Max tokens required to gracefully close the generated schema.
             safety_margin: Additional buffer tokens.
         """

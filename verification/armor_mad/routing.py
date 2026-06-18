@@ -31,7 +31,7 @@ class BrickSpatialCapabilityRouter:
     def __init__(self):
         # Models positioned in a 2D abstract capability space (x=logic, y=creativity)
         self.model_spatial_map = {
-            "Qwen-3.5-4B": (0.2, 0.5, 0.1), # (x, y, cost)
+            "Phi-4-mini-instruct": (0.2, 0.5, 0.1), # (x, y, cost)
             "Llama-3-8B": (0.6, 0.6, 0.5),
             "RelDiT-Agent": (0.9, 0.1, 0.2)
         }

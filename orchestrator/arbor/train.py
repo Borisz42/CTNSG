@@ -67,7 +67,15 @@ def train_arbor_sft(
         goal = graph.get("goal", f"Task {idx}")
         prompt = f"<|im_start|>system\nYou are the Arbor Supervisor. Decompose this task into a JSON DAG.<|im_end|>\n<|im_start|>user\n{goal}<|im_end|>\n<|im_start|>assistant\n"
         node_names = graph.get("node_names", [])
-        text_edges = graph.get("text_edges", [])
+        text_edges_raw = graph.get("text_edges", [])
+        text_edges = []
+        for edge in text_edges_raw:
+            if len(edge) == 2:
+                text_edges.append({
+                    "source": node_names[edge[0]],
+                    "target": node_names[edge[1]],
+                    "relation": "depends_on"
+                })
         completion = json.dumps({"nodes": node_names, "edges": text_edges})
         text = prompt + completion + "<|im_end|>"
         dataset_texts.append(text)
