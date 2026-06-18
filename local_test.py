@@ -86,6 +86,7 @@ def run_test():
 
     # Free up VRAM
     del arbor_model
+    del planner
     torch.cuda.empty_cache()
     
     print("\n--- 3. GVT Training Loop ---")
@@ -134,6 +135,13 @@ def run_test():
         loss.backward()
         reldit_optimizer.step()
         print(f"Epoch {epoch+1} | RelDiT Batched Loss: {loss.item():.4f}")
+        
+    # Free up VRAM before loading the realizer
+    del gvt
+    del reldit
+    del gvt_optimizer
+    del reldit_optimizer
+    torch.cuda.empty_cache()
         
     print("\n--- 5. Realizer Inference Pipeline ---")
     realizer = CTNSGRealizer(vocab_size=3200, hidden_dim=256, model_name="unsloth/Phi-4-mini-instruct")

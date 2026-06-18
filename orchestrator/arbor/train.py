@@ -22,7 +22,8 @@ def train_arbor_sft(
         if torch.cuda.is_available():
             num_gpus = torch.cuda.device_count()
             vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            per_gpu_bs = max(1, int((vram_gb - 3) / 0.75))
+            # Phi-4-mini is much larger (3.8B) than Qwen 1.5B. We assume 4GB base overhead and ~2GB per batch item.
+            per_gpu_bs = max(1, int((vram_gb - 4) / 2.0))
             powers_of_2 = [1, 2, 4, 8, 16, 32, 64]
             per_gpu_bs = max([p for p in powers_of_2 if p <= per_gpu_bs], default=1)
             batch_size = per_gpu_bs * num_gpus
@@ -91,6 +92,9 @@ def train_arbor_sft(
         num_training_steps=num_training_steps
     )
     
+    accumulation_steps = max(1, 16 // batch_size)
+    print(f"Targeting Effective Batch Size 16. Physical BS: {batch_size}, Accumulation Steps: {accumulation_steps}")
+    
     arbor_model.train()
     from tqdm import tqdm
     for epoch in range(epochs):
@@ -107,13 +111,15 @@ def train_arbor_sft(
             labels[inputs["attention_mask"] == 0] = -100
             
             outputs = arbor_model(**inputs, labels=labels)
-            loss = outputs.loss
+            loss = outputs.loss / accumulation_steps
             loss.backward()
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
             
-            curr_loss = loss.item()
+            if (b_idx + 1) % accumulation_steps == 0 or (b_idx + 1) == num_batches:
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+            
+            curr_loss = loss.item() * accumulation_steps
             total_loss += curr_loss
             pbar.set_postfix({"loss": f"{curr_loss:.4f}"})
             
