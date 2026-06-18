@@ -191,7 +191,7 @@ def worker_task(task_id):
     
     prompt = generate_dynamic_prompt()
     payload = {
-        "model": "Qwen/Qwen3.5-9B-Instruct-AWQ",
+        "model": "QuantTrio/Qwen3.5-9B-AWQ",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
         "max_tokens": 1024,
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     print("Launching Server A on GPU 0 (Port 8000)...")
     server_a = subprocess.Popen(
         "CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server "
-        "--model Qwen/Qwen3.5-9B-Instruct-AWQ --quantization awq "
+        "--model QuantTrio/Qwen3.5-9B-AWQ --quantization awq "
         "--port 8000 --max-model-len 2048 --gpu-memory-utilization 0.90 --max-num-seqs 64",
         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     print("Launching Server B on GPU 1 (Port 8001)...")
     server_b = subprocess.Popen(
         "CUDA_VISIBLE_DEVICES=1 python -m vllm.entrypoints.openai.api_server "
-        "--model Qwen/Qwen3.5-9B-Instruct-AWQ --quantization awq "
+        "--model QuantTrio/Qwen3.5-9B-AWQ --quantization awq "
         "--port 8001 --max-model-len 2048 --gpu-memory-utilization 0.90 --max-num-seqs 64",
         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
