@@ -1,4 +1,5 @@
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -22,11 +23,13 @@ def train_arbor_sft(
         if torch.cuda.is_available():
             num_gpus = torch.cuda.device_count()
             vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            # Phi-4-mini is much larger (3.8B) than Qwen 1.5B. We assume 4GB base overhead and ~2GB per batch item.
-            per_gpu_bs = max(1, int((vram_gb - 4) / 2.0))
-            powers_of_2 = [1, 2, 4, 8, 16, 32, 64]
-            per_gpu_bs = max([p for p in powers_of_2 if p <= per_gpu_bs], default=1)
-            batch_size = per_gpu_bs * num_gpus
+            # Phi-4-mini is 3.8B parameters. We assume ~5GB base overhead for model weights and optimizer states,
+            # and ~2.5GB per batch item for activations with max_length=512.
+            # device_map="auto" splits layers across GPUs (pipeline parallel), so the full batch passes through each GPU.
+            # Thus, we do NOT multiply the calculated physical batch size by num_gpus.
+            bs_estimate = max(1, int((vram_gb - 5.0) / 2.5))
+            powers_of_2 = [1, 2, 4, 8, 16, 32]
+            batch_size = max([p for p in powers_of_2 if p <= bs_estimate], default=1)
             print(f"Dynamically set batch size to {batch_size} (GPUs: {num_gpus}, VRAM/GPU: {vram_gb:.1f} GB)")
         else:
             batch_size = 1
