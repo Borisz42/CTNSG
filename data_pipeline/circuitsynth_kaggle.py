@@ -221,7 +221,7 @@ if __name__ == "__main__":
     print("Launching Server A on GPU 0 (Port 8000)...")
     server_a = subprocess.Popen(
         "VLLM_ATTENTION_BACKEND=TORCH_SDPA CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server "
-        "--model cyankiwi/Qwen3.5-9B-AWQ-4bit --quantization awq "
+        "--model cyankiwi/Qwen3.5-9B-AWQ-4bit "
         "--port 8000 --max-model-len 2048 --gpu-memory-utilization 0.80 --max-num-seqs 32 --enforce-eager",
         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     print("Launching Server B on GPU 1 (Port 8001)...")
     server_b = subprocess.Popen(
         "VLLM_ATTENTION_BACKEND=TORCH_SDPA CUDA_VISIBLE_DEVICES=1 python -m vllm.entrypoints.openai.api_server "
-        "--model cyankiwi/Qwen3.5-9B-AWQ-4bit --quantization awq "
+        "--model cyankiwi/Qwen3.5-9B-AWQ-4bit "
         "--port 8001 --max-model-len 2048 --gpu-memory-utilization 0.80 --max-num-seqs 32 --enforce-eager",
         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
