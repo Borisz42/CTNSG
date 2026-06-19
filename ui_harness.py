@@ -80,6 +80,12 @@ def process_query(user_query):
     """
     Executes the full CTNSG pipeline for the UI.
     """
+    yield (
+        "### 🗺️ Planning Graph\n\n⏳ *Orchestrating tasks...*", 
+        "### 🧠 Reasoning\n\n⏳ *Waiting for topology...*", 
+        "### ✨ Formatted Final Answer\n\n⏳ *Waiting for generation...*"
+    )
+    
     start_time = time.time()
     
     # 1. Orchestrator
@@ -139,30 +145,57 @@ def process_query(user_query):
         },
         "required": ["reasoning", "markdown_output"]
     }
-    res = realizer.generate(graph, schema, context_lines=5, prompt=user_query, graph_features=out['z_q'])
-    final_output = res['text']
-        
-    end_time = time.time()
-    
     import json
-    try:
-        out_data = json.loads(final_output)
+    import re
+    
+    for res in realizer.generate_stream(graph, schema, context_lines=5, prompt=user_query, graph_features=out['z_q']):
+        partial_output = res['text']
         
-        raw_reasoning = out_data.get("reasoning", "")
-        raw_md_out = out_data.get("markdown_output", "")
-        
-        if isinstance(raw_reasoning, str):
-            raw_reasoning = raw_reasoning.replace('\\n', '\n')
-        if isinstance(raw_md_out, str):
-            raw_md_out = raw_md_out.replace('\\n', '\n')
+        try:
+            out_data = json.loads(partial_output)
+            raw_reasoning = out_data.get("reasoning", "")
+            raw_md_out = out_data.get("markdown_output", "")
             
-        reasoning = "### 🧠 Reasoning\n\n" + raw_reasoning
-        md_out = "### ✨ Formatted Final Answer\n\n" + raw_md_out
-    except Exception as e:
-        reasoning = f"### ⚠️ Error parsing JSON output\n{str(e)}"
-        md_out = f"### ✨ Formatted Final Answer\n\n```json\n{final_output}\n```"
-        
-    return dag_mermaid, reasoning, md_out
+            if isinstance(raw_reasoning, str):
+                raw_reasoning = raw_reasoning.replace('\\n', '\n')
+            if isinstance(raw_md_out, str):
+                raw_md_out = raw_md_out.replace('\\n', '\n')
+                
+            reasoning = "### 🧠 Reasoning\n\n" + str(raw_reasoning)
+            md_out = "### ✨ Formatted Final Answer\n\n" + str(raw_md_out)
+            yield dag_mermaid, reasoning, md_out
+            
+        except Exception:
+            reasoning = "### 🧠 Reasoning\n\n"
+            md_out = "### ✨ Formatted Final Answer\n\n"
+            
+            def decode_partial(s):
+                if s.endswith('\\') and not s.endswith('\\\\'):
+                    s = s[:-1]
+                for suffix in ['"', '\\"', '""']:
+                    try:
+                        res = json.loads('"' + s + suffix)
+                        if isinstance(res, str):
+                            return res.replace('\\n', '\n')
+                    except Exception:
+                        pass
+                return s.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+            
+            r_match = re.search(r'"reasoning":\s*"((?:[^"\\]|\\.)*)', partial_output)
+            if r_match:
+                reasoning += decode_partial(r_match.group(1)) + " ▌"
+            
+            m_match = re.search(r'"markdown_output":\s*"((?:[^"\\]|\\.)*)', partial_output)
+            if m_match:
+                md_out += decode_partial(m_match.group(1)) + " ▌"
+                
+            if not r_match and not m_match:
+                reasoning += "*(Generating JSON...)* ▌"
+                md_out += f"```json\n{partial_output}\n```"
+                
+            yield dag_mermaid, reasoning, md_out
+            
+    end_time = time.time()
 
 # Gradio Interface
 with gr.Blocks(title="CTNSG Framework Inference Harness") as demo:

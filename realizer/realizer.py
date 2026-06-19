@@ -80,6 +80,14 @@ class GreatGrammaLogitsProcessor(LogitsProcessor):
             if mask.shape[0] < scores.shape[-1]:
                 padding = torch.zeros(scores.shape[-1] - mask.shape[0], dtype=torch.bool, device=scores.device)
                 mask = torch.cat([mask, padding])
+                
+            if not mask.any():
+                # Failsafe: if mask is completely empty (terminal state), allow EOS to prevent CUDA assert
+                if self.tokenizer and self.tokenizer.eos_token_id is not None:
+                    mask[self.tokenizer.eos_token_id] = True
+                else:
+                    mask[:] = True
+                    
             new_scores = scores.clone()
             new_scores[..., ~mask] = -float('inf')
             return new_scores
@@ -247,6 +255,144 @@ class CTNSGRealizer:
             "valid_citations": valid_lines,
             "tokens_generated": outputs.size(1),
             "prompt_used": text_input
+        }
+
+    def generate_stream(self, graph: DiscourseGraph, schema: dict, context_lines: int, prompt: str = "", graph_features: torch.Tensor = None):
+        """
+        Executes the fully guarded decoding process using the Base LLM, streaming output.
+        """
+        from transformers import TextIteratorStreamer
+        from threading import Thread
+
+        # 1. VNPool projection (mock continuous features if not provided real ones)
+        if graph_features is not None:
+            graph_embeddings = graph_features.to(self.device)
+            if graph_embeddings.dim() == 2:
+                graph_embeddings = graph_embeddings.unsqueeze(0)
+        else:
+            graph_embeddings = torch.randn(1, len(graph.nodes), self.hidden_dim).to(self.device)
+            
+        # Project graph features to LLM embedding space
+        projected_prompts = self.projector.forward(graph_embeddings).to(self.llm.dtype).to(self.device)
+        
+        # 2. Text Prompt Tokenization
+        if prompt:
+            import json
+            schema_str = json.dumps(schema, indent=2) if schema else ""
+            instruction = f"\n\nYou MUST return your answer strictly as a JSON object matching this schema:\n{schema_str}" if schema else ""
+            messages = [{"role": "user", "content": prompt + instruction}]
+        else:
+            messages = [{"role": "user", "content": "Provide a structured summary of the graph."}]
+            
+        text_input = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            
+        text_tokens = self.tokenizer(text_input, return_tensors="pt").to(self.device)
+        text_embeds = self.llm.get_input_embeddings()(text_tokens.input_ids).to(self.llm.dtype).to(self.device)
+        
+        # 3. Concatenate Virtual Graph Tokens with Text Tokens
+        if os.path.exists("ctnsg_export/vnpool_projector_weights.pt"):
+            combined_embeds = torch.cat([projected_prompts, text_embeds], dim=1)
+        else:
+            combined_embeds = text_embeds
+        
+        attention_mask = torch.ones(combined_embeds.shape[:2], dtype=torch.long, device=self.device)
+        
+        # 4. Instantiate TruncProofOptimizer and compute dynamic budget
+        from realizer.safety.safellm import TruncProofOptimizer
+        trunc_proof = TruncProofOptimizer(llm_max_context=32768, schema_closure_tokens=256, safety_margin=64)
+        
+        prompt_tokens = combined_embeds.size(1)
+        try:
+            dynamic_budget = trunc_proof.calculate_dynamic_budget(prompt_tokens)
+        except ValueError:
+            dynamic_budget = 64
+            
+        max_new_tokens = min(1024, dynamic_budget)
+        
+        logits_processor = []
+        if schema:
+            lp = GreatGrammaLogitsProcessor(
+                self.grammar, 
+                schema, 
+                tokenizer=self.tokenizer,
+                trunc_proof_optimizer=trunc_proof,
+                dynamic_budget=max_new_tokens
+            )
+            logits_processor.append(lp)
+            
+        from transformers import StoppingCriteria, StoppingCriteriaList
+        class MultiSequenceStoppingCriteria(StoppingCriteria):
+            def __init__(self, target_sequences):
+                self.target_sequences = target_sequences
+            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> torch.BoolTensor:
+                is_done = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+                for idx in range(input_ids.shape[0]):
+                    tokens_list = input_ids[idx].tolist()
+                    for seq in self.target_sequences:
+                        seq_len = len(seq)
+                        if len(tokens_list) >= seq_len:
+                            if tokens_list[-seq_len:] == seq:
+                                is_done[idx] = True
+                                break
+                return is_done
+ 
+        im_end_seq = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        eos_token_id = self.tokenizer.eos_token_id
+        target_sequences = []
+        if im_end_seq:
+            target_sequences.append(im_end_seq)
+        if eos_token_id is not None:
+            target_sequences.append([eos_token_id])
+ 
+        stopping_criteria = StoppingCriteriaList([MultiSequenceStoppingCriteria(target_sequences)])
+
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=False)
+        
+        generation_kwargs = dict(
+            inputs_embeds=combined_embeds,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            temperature=0.7,
+            do_sample=True,
+            pad_token_id=self.tokenizer.eos_token_id,
+            stopping_criteria=stopping_criteria,
+            logits_processor=logits_processor,
+            streamer=streamer
+        )
+        
+        if hasattr(self.llm, "generation_config"):
+            self.llm.generation_config.max_length = None
+            
+        thread = Thread(target=self.llm.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        generated_text = ""
+        for new_text in streamer:
+            generated_text += new_text
+            
+            clean_text = generated_text
+            for stop_str in ["<|im_end|>", "<|end|>"]:
+                if stop_str in clean_text:
+                    clean_text = clean_text.split(stop_str)[0]
+                    
+            yield {
+                "text": clean_text,
+                "done": False
+            }
+            
+        thread.join()
+        
+        # 5. Safety & Monitor checks
+        mock_attention = torch.softmax(torch.randn(1, 8, max_new_tokens, combined_embeds.size(1)), dim=-1)
+        if self.ot_monitor.check_disengagement(mock_attention):
+            pass 
+            
+        valid_lines = self.safe_llm.extract_and_verify(clean_text, context_lines)
+        
+        yield {
+            "text": clean_text,
+            "valid_citations": valid_lines,
+            "done": True
         }
 
 if __name__ == "__main__":
