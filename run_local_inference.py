@@ -35,7 +35,11 @@ base_model = AutoModelForCausalLM.from_pretrained(
     quantization_config=quantization_config
 )
 # Load PEFT adapter
-arbor_model = PeftModel.from_pretrained(base_model, "ctnsg_export/arbor_lora_weights")
+try:
+    arbor_model = PeftModel.from_pretrained(base_model, "ctnsg_export/arbor_lora_weights")
+except ValueError:
+    print("Warning: arbor_lora_weights not found. Using base model as fallback.")
+    arbor_model = base_model
 
 # 2. Load Realizer (Uses the same base LLM)
 print("Initializing Realizer...")
@@ -97,7 +101,14 @@ arbor_processor = GreatGrammaLogitsProcessor(realizer.grammar, arbor_schema, tok
 # Instantiate the planner using the fine-tuned PEFT model and GCD mask
 planner_pipeline = ArborPlanner(llm=arbor_model, tokenizer=tokenizer, grammar_processor=arbor_processor)
 
-schema = {"type": "object", "properties": {"output": {"type": "string"}}}
+schema = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "markdown_output": {"type": "string"}
+    },
+    "required": ["reasoning", "markdown_output"]
+}
 
 for i, q in enumerate(questions, 1):
     print(f"\nQuestion {i}: {q}")
