@@ -84,6 +84,9 @@ class CTNSGRealizer:
         # Shape: [1, num_graph_nodes + num_text_tokens, llm_hidden_dim]
         combined_embeds = torch.cat([projected_prompts, text_embeds], dim=1)
         
+        # Explicit attention mask required when passing inputs_embeds
+        attention_mask = torch.ones(combined_embeds.shape[:2], dtype=torch.long, device=self.device)
+        
         # 4. Generate using Base LLM
         logits_processor = []
         if schema:
@@ -93,6 +96,7 @@ class CTNSGRealizer:
         with torch.no_grad():
             outputs = self.llm.generate(
                 inputs_embeds=combined_embeds,
+                attention_mask=attention_mask,
                 max_new_tokens=1024,
                 temperature=0.7,
                 do_sample=True,
