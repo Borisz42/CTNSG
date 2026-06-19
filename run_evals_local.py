@@ -39,14 +39,40 @@ def main():
     from orchestrator.arbor.sdrt_filter import SDRTGNNFilter
     from realizer.realizer import CTNSGRealizer
     from contracts.graph_schema import DiscourseGraph, SemanticNode, SemanticEdge
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from huggingface_hub import snapshot_download
 
     print("\n========================================================")
     print("   CTNSG Local Evaluation Harness (Windows Optimized)   ")
     print("========================================================")
     
     sample_text = f"{num_samples} samples" if num_samples else "EXHAUSTIVE (All samples)"
+    
+    repo_id = "Borisz42/CTNSG"
+    export_dir = "ctnsg_export"
+    print(f"\nVerifying weights from Hugging Face ({repo_id})...")
+    snapshot_download(repo_id=repo_id, local_dir=export_dir)
+
     print(f"\nInitializing CTNSGRealizer (Model: Phi-4-mini-instruct, 4-bit, Target VRAM: ~2.5GB)...")
-    realizer = CTNSGRealizer(model_name="unsloth/Phi-4-mini-instruct")
+    model_name = "unsloth/Phi-4-mini-instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True
+    )
+    base_model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        quantization_config=quantization_config
+    )
+    
+    realizer = CTNSGRealizer(model_name=model_name, hidden_dim=256, cache_dir=os.path.join(export_dir, ".psc_cache"))
+    realizer.llm = base_model
+    realizer.tokenizer = tokenizer
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # -------------------------------------------------------------------------
     # 1. GSM8K Evaluation (JSON Schema Masking)
@@ -66,7 +92,7 @@ def main():
     
     for item in gsm8k:
         mock_graph = DiscourseGraph(graph_id="gsm", nodes=[SemanticNode("n1", "math", 0)], edges=[])
-        res = realizer.generate(mock_graph, gsm8k_schema, context_lines=0, prompt=item['question'])
+        res = realizer.generate(mock_graph, gsm8k_schema, context_lines=0, prompt=item['question'], graph_features=torch.zeros(1, 256).to(device))
         try:
             ans = float(json.loads(res['text'])['final_answer'])
             gt = float(item['answer'].split('####')[1].strip())
@@ -94,7 +120,7 @@ def main():
             prompt += f"{chr(65+i)}: {opt}\n"
             
         mock_graph = DiscourseGraph(graph_id="mmlu", nodes=[SemanticNode("n1", "qa", 0)], edges=[])
-        res = realizer.generate(mock_graph, mmlu_schema, context_lines=0, prompt=prompt)
+        res = realizer.generate(mock_graph, mmlu_schema, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
         
         if res['text'].strip() == item['answer']: 
             mmlu_correct += 1
@@ -112,7 +138,7 @@ def main():
     heval_correct = 0
     for item in heval:
         mock_graph = DiscourseGraph(graph_id="heval", nodes=[SemanticNode("n1", "code", 0)], edges=[])
-        res = realizer.generate(mock_graph, {}, context_lines=0, prompt=item['prompt'])
+        res = realizer.generate(mock_graph, {}, context_lines=0, prompt=item['prompt'], graph_features=torch.zeros(1, 256).to(device))
         full_code = item['prompt'] + res['text']
         
         queue = multiprocessing.Queue()
@@ -183,7 +209,7 @@ def main():
         pruned_graph = sdrt_filter.forward(indexed_graph, query, top_k=5)
         
         prompt = build_prompt(sample, "Refer to the DiscourseGraph for facts.")
-        res = realizer.generate(pruned_graph, {}, context_lines=0, prompt=prompt)
+        res = realizer.generate(pruned_graph, {}, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
         
         response = res['text'].strip()
         pred = "Unknown"

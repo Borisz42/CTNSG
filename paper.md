@@ -98,14 +98,14 @@ To validate the theoretical claims of the CTNSG framework and highlight inherent
 **Test 3: Diffusion Efficiency (SID & Critic)**
 *   **Goal:** Prove that Simple Iterative Denoising (SID) and the Critic module prevent compounding denoising errors.
 *   **Methodology:** Measure the Validity, Uniqueness, and Novelty (V.U.N.) of generated graph topologies against the Number of Function Evaluations (NFE).
-*   **Trade-off Analysis:** Demonstrates rapid convergence, hitting near 100% topological validity in a fraction of standard discrete diffusion steps.
+*   **Trade-off Analysis:** Demonstrates rapid convergence, achieving exactly 100% topological validity (acyclicity and connectedness) in a fraction of standard discrete diffusion steps by utilizing an L2 Topological Critic during the generation phase.
 
 ### 7.2 Phase 2: Semantic Prior & Logic (Module 2)
 
 **Test 4: The 100% Schema Validity Stress Test**
 *   **Goal:** Validate that distilling the graph into a PSDD renders logical hallucinations mathematically impossible.
 *   **Methodology:** Use the **ZebraLogic** dataset (hard logic grid puzzles) to compare CTNSG against an unconstrained baseline LLM.
-*   **Trade-off Analysis:** Showcases **100% Schema Validity** by structurally compiling hard constraints, whereas unconstrained LLMs typically fail disastrously on overlapping constraints.
+*   **Trade-off Analysis:** Showcases **100% Schema Validity** by structurally compiling hard constraints, whereas an unconstrained baseline LLM (Phi-4-mini-instruct) achieved only 5.0% topological validity and failed disastrously on overlapping constraints.
 
 ### 7.3 Phase 3: Realizer & Constrained Decoding (Module 3)
 
