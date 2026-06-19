@@ -82,19 +82,27 @@ def main():
     if num_samples: gsm8k = gsm8k.select(range(num_samples))
 
     gsm8k_correct = 0
-    gsm8k_schema = {
-        "type": "object", 
+    universal_schema = {
+        "type": "object",
         "properties": {
-            "reason_chain": {"type": "string"}, 
-            "final_answer": {"type": "number"}
-        }
+            "reasoning": {"type": "string"},
+            "markdown_output": {"type": "string"}
+        },
+        "required": ["reasoning", "markdown_output"]
     }
     
     for item in gsm8k:
         mock_graph = DiscourseGraph(graph_id="gsm", nodes=[SemanticNode("n1", "math", 0)], edges=[])
-        res = realizer.generate(mock_graph, gsm8k_schema, context_lines=0, prompt=item['question'], graph_features=torch.zeros(1, 256).to(device))
+        res = realizer.generate(mock_graph, universal_schema, context_lines=0, prompt=item['question'], graph_features=torch.zeros(1, 256).to(device))
         try:
-            ans = float(json.loads(res['text'])['final_answer'])
+            parsed = json.loads(res['text'])
+            ans_str = parsed.get('markdown_output', '')
+            import re
+            numbers = re.findall(r"[-+]?\d*\.\d+|\d+", ans_str)
+            if numbers:
+                ans = float(numbers[-1])
+            else:
+                ans = float(ans_str)
             gt = float(item['answer'].split('####')[1].strip())
             if abs(ans - gt) < 1e-4: 
                 gsm8k_correct += 1
@@ -112,7 +120,6 @@ def main():
     if num_samples: mmlu = mmlu.select(range(num_samples))
 
     mmlu_correct = 0
-    mmlu_schema = {"type": "string", "pattern": "^[A-J]$"}
     
     for item in mmlu:
         prompt = item['question'] + "\nOptions:\n"
@@ -120,9 +127,15 @@ def main():
             prompt += f"{chr(65+i)}: {opt}\n"
             
         mock_graph = DiscourseGraph(graph_id="mmlu", nodes=[SemanticNode("n1", "qa", 0)], edges=[])
-        res = realizer.generate(mock_graph, mmlu_schema, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
+        res = realizer.generate(mock_graph, universal_schema, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
         
-        if res['text'].strip() == item['answer']: 
+        try:
+            parsed = json.loads(res['text'])
+            answer_text = parsed.get('markdown_output', '').strip()
+        except Exception:
+            answer_text = res['text'].strip()
+            
+        if answer_text == item['answer']: 
             mmlu_correct += 1
             
     ctnsg_mmlu = (mmlu_correct / len(mmlu)) * 100
@@ -138,8 +151,18 @@ def main():
     heval_correct = 0
     for item in heval:
         mock_graph = DiscourseGraph(graph_id="heval", nodes=[SemanticNode("n1", "code", 0)], edges=[])
-        res = realizer.generate(mock_graph, {}, context_lines=0, prompt=item['prompt'], graph_features=torch.zeros(1, 256).to(device))
-        full_code = item['prompt'] + res['text']
+        res = realizer.generate(mock_graph, universal_schema, context_lines=0, prompt=item['prompt'], graph_features=torch.zeros(1, 256).to(device))
+        try:
+            code_out = json.loads(res['text']).get('markdown_output', '')
+        except Exception:
+            code_out = res['text']
+            
+        import re
+        code_blocks = re.findall(r'```(?:python)?\n(.*?)\n```', code_out, re.DOTALL)
+        if code_blocks:
+            code_out = code_blocks[0]
+            
+        full_code = item['prompt'] + code_out
         
         queue = multiprocessing.Queue()
         # execution worker spawned using the top-level execute_code function
@@ -209,9 +232,12 @@ def main():
         pruned_graph = sdrt_filter.forward(indexed_graph, query, top_k=5)
         
         prompt = build_prompt(sample, "Refer to the DiscourseGraph for facts.")
-        res = realizer.generate(pruned_graph, {}, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
+        res = realizer.generate(pruned_graph, universal_schema, context_lines=0, prompt=prompt, graph_features=torch.zeros(1, 256).to(device))
         
-        response = res['text'].strip()
+        try:
+            response = json.loads(res['text']).get('markdown_output', '').strip()
+        except Exception:
+            response = res['text'].strip()
         pred = "Unknown"
         match = regex.search(r'\b([A-D])\b', response)
         if match: pred = match.group(1)
