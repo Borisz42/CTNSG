@@ -95,6 +95,8 @@ class ArborPlanner:
         stopping_criteria = StoppingCriteriaList([MultiSequenceStoppingCriteria(target_sequences)])
 
         with torch.no_grad():
+            if hasattr(self.llm, "generation_config"):
+                self.llm.generation_config.max_length = None
             outputs = self.llm.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,

@@ -455,10 +455,11 @@ class ParserStackClassification:
       • shortest_path_token: next token to force when TruncProof fires
     """
 
-    def __init__(self, vocab_size: int, schema: Dict[str, Any], tokenizer=None):
+    def __init__(self, vocab_size: int, schema: Dict[str, Any], tokenizer=None, cache_dir: Optional[str] = None):
         self.vocab_size = vocab_size
         self.schema = schema
         self.tokenizer = tokenizer
+        self.cache_dir = cache_dir
         self.is_precomputed = False
 
         self.state_to_id: Dict = {}
@@ -483,7 +484,10 @@ class ParserStackClassification:
             tok_name = getattr(self.tokenizer, 'name_or_path', 'unknown')
             key = f"{tok_name}|{self.vocab_size}|{schema_str}"
             digest = hashlib.sha256(key.encode()).hexdigest()[:16]
-            cache_dir = os.path.join(os.path.dirname(__file__), ".psc_cache")
+            if self.cache_dir:
+                cache_dir = self.cache_dir
+            else:
+                cache_dir = os.path.join(os.path.dirname(__file__), ".psc_cache")
             os.makedirs(cache_dir, exist_ok=True)
             return os.path.join(cache_dir, f"psc_{digest}.pt")
         except Exception:
@@ -687,14 +691,15 @@ class GreatGramma:
     offline DFA compilation for O(1) grammar-constrained decoding.
     """
 
-    def __init__(self, vocab_size: int, allowed_concepts: List[str]):
+    def __init__(self, vocab_size: int, allowed_concepts: List[str], cache_dir: Optional[str] = None):
         self.vocab_size = vocab_size
         self.whitelist = StrictWhitelistEnforcer(set(allowed_concepts))
+        self.cache_dir = cache_dir
 
     def compile_schema(self, dynamic_schema: Dict[str, Any],
                        tokenizer=None) -> ParserStackClassification:
         """Compile a JSON schema into an O(1) PSC mask set."""
-        return ParserStackClassification(self.vocab_size, dynamic_schema, tokenizer)
+        return ParserStackClassification(self.vocab_size, dynamic_schema, tokenizer, cache_dir=self.cache_dir)
 
     def apply_transducer_masking(self, logits: torch.Tensor, state_id: int,
                                  psc: ParserStackClassification) -> torch.Tensor:

@@ -39,7 +39,7 @@ arbor_model = PeftModel.from_pretrained(base_model, "ctnsg_export/arbor_lora_wei
 
 # 2. Load Realizer (Uses the same base LLM)
 print("Initializing Realizer...")
-realizer = CTNSGRealizer(model_name=model_name, hidden_dim=256)
+realizer = CTNSGRealizer(model_name=model_name, hidden_dim=256, cache_dir="ctnsg_export/.psc_cache")
 # We share the base LLM instance for memory efficiency
 realizer.llm = base_model
 realizer.tokenizer = tokenizer

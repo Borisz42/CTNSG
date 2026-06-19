@@ -92,7 +92,7 @@ class CTNSGRealizer:
     High-Throughput Neuro-Symbolic Decoding Engine.
     Integrates VNPool, GREATGRAMMA, MTP, and SafeLLM.
     """
-    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 256, model_name: str = "unsloth/Phi-4-mini-instruct"):
+    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 256, model_name: str = "unsloth/Phi-4-mini-instruct", cache_dir: str = None):
         self.vocab_size = vocab_size
         self.hidden_dim = hidden_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -121,7 +121,7 @@ class CTNSGRealizer:
         # Use tokenizer length for grammar (not model config padded size) so the
         # precomputed DFA cache key is stable across runs and mask dimensions include special tokens.
         tok_vocab_size = len(self.tokenizer)
-        self.grammar = GreatGramma(tok_vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"])
+        self.grammar = GreatGramma(tok_vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"], cache_dir=cache_dir)
         self.mtp_engine = DecompositionAndFill(hidden_dim, self.llm.config.vocab_size)
         self.safe_llm = SafeLLMExtractor()
         self.ot_monitor = OptimalTransportMonitor(threshold=0.3)
@@ -143,7 +143,10 @@ class CTNSGRealizer:
         
         # 2. Text Prompt Tokenization
         if prompt:
-            messages = [{"role": "user", "content": prompt}]
+            import json
+            schema_str = json.dumps(schema, indent=2) if schema else ""
+            instruction = f"\n\nYou MUST return your answer strictly as a JSON object matching this schema:\n{schema_str}" if schema else ""
+            messages = [{"role": "user", "content": prompt + instruction}]
         else:
             messages = [{"role": "user", "content": "Provide a structured summary of the graph."}]
             
@@ -153,8 +156,11 @@ class CTNSGRealizer:
         text_embeds = self.llm.get_input_embeddings()(text_tokens.input_ids).to(self.llm.dtype).to(self.device)
         
         # 3. Concatenate Virtual Graph Tokens with Text Tokens
-        # Shape: [1, num_graph_nodes + num_text_tokens, llm_hidden_dim]
-        combined_embeds = torch.cat([projected_prompts, text_embeds], dim=1)
+        # If the projector is untrained, random weights cause float16 overflow in the LLM resulting in NaN logits.
+        if os.path.exists("ctnsg_export/vnpool_projector_weights.pt"):
+            combined_embeds = torch.cat([projected_prompts, text_embeds], dim=1)
+        else:
+            combined_embeds = text_embeds
         
         # Explicit attention mask required when passing inputs_embeds
         attention_mask = torch.ones(combined_embeds.shape[:2], dtype=torch.long, device=self.device)
@@ -210,6 +216,8 @@ class CTNSGRealizer:
         stopping_criteria = StoppingCriteriaList([MultiSequenceStoppingCriteria(target_sequences)])
  
         with torch.no_grad():
+            if hasattr(self.llm, "generation_config"):
+                self.llm.generation_config.max_length = None
             outputs = self.llm.generate(
                 inputs_embeds=combined_embeds,
                 attention_mask=attention_mask,
