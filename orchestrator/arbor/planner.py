@@ -28,32 +28,87 @@ class ArborPlanner:
                 {"task_id": "t4", "type": "validate_output", "depends_on": ["t3"]}
             ]
             
-        prompt = (
-            "<|im_start|>system\n"
-            "You are the Arbor Supervisor. Decompose this task into a JSON DAG.\n"
-            "<|im_end|>\n"
-            f"<|im_start|>user\n{user_query}<|im_end|>\n"
-            "<|im_start|>assistant\n"
-        )
+        messages = [
+            {"role": "system", "content": (
+                "You are the Arbor Supervisor. Decompose the user's task into a strict JSON DAG "
+                "conforming to the following schema:\n"
+                "{\n"
+                "  \"nodes\": [\"task_id_1\", \"task_id_2\", ...],\n"
+                "  \"edges\": [\n"
+                "    {\"source\": \"task_id_1\", \"target\": \"task_id_2\", \"relation\": \"depends_on\"}\n"
+                "  ]\n"
+                "}\n"
+                "Do not use tuples like (a, b) in edges. Use objects with \"source\", \"target\", and \"relation\" keys."
+            )},
+            {"role": "user", "content": user_query}
+        ]
+        prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.llm.device)
         
         # Apply O(1) GREATGRAMMA JSON constraint mask
         logits_processor = []
         if self.grammar_processor is not None:
-            logits_processor.append(self.grammar_processor)
+            from realizer.safety.safellm import TruncProofOptimizer
+            trunc_proof = TruncProofOptimizer(llm_max_context=32768, schema_closure_tokens=64, safety_margin=32)
+            prompt_tokens = inputs.input_ids.shape[1]
+            try:
+                dynamic_budget = trunc_proof.calculate_dynamic_budget(prompt_tokens)
+            except ValueError:
+                dynamic_budget = 64
+            max_new_tokens = min(1024, dynamic_budget)
             
+            # Configure grammar processor dynamically for this run
+            self.grammar_processor.trunc_proof_optimizer = trunc_proof
+            self.grammar_processor.dynamic_budget = max_new_tokens
+            self.grammar_processor.current_step = 0
+            self.grammar_processor.current_state_id = 0
+            logits_processor.append(self.grammar_processor)
+        else:
+            max_new_tokens = 1024
+            
+        from transformers import StoppingCriteria, StoppingCriteriaList
+
+        class MultiSequenceStoppingCriteria(StoppingCriteria):
+            def __init__(self, target_sequences):
+                self.target_sequences = target_sequences
+            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> torch.BoolTensor:
+                is_done = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+                for idx in range(input_ids.shape[0]):
+                    tokens_list = input_ids[idx].tolist()
+                    for seq in self.target_sequences:
+                        seq_len = len(seq)
+                        if len(tokens_list) >= seq_len:
+                            if tokens_list[-seq_len:] == seq:
+                                is_done[idx] = True
+                                break
+                return is_done
+
+        im_end_seq = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        eos_token_id = self.tokenizer.eos_token_id
+        target_sequences = []
+        if im_end_seq:
+            target_sequences.append(im_end_seq)
+        if eos_token_id is not None:
+            target_sequences.append([eos_token_id])
+
+        stopping_criteria = StoppingCriteriaList([MultiSequenceStoppingCriteria(target_sequences)])
+
         with torch.no_grad():
             outputs = self.llm.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=max_new_tokens,
                 temperature=0.1,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id,
+                stopping_criteria=stopping_criteria,
                 logits_processor=logits_processor
             )
             
-        response = self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+        response = self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=False)
+        for stop_str in ["<|im_end|>", "<|end|>"]:
+            if stop_str in response:
+                response = response.split(stop_str)[0]
         
         try:
             dag = json.loads(response)
@@ -61,9 +116,15 @@ class ArborPlanner:
             if isinstance(dag, dict) and "nodes" in dag:
                 # Convert {"nodes": ["task1"], "edges": [{"source": "task1", "target": "task2"}]} to the UI's expected format
                 for node in dag.get("nodes", []):
+                    if isinstance(node, dict):
+                        task_id = node.get("id", "unknown")
+                        task_type = node.get("label", node.get("id", "unknown"))
+                    else:
+                        task_id = node
+                        task_type = node
                     subtasks.append({
-                        "task_id": node,
-                        "type": node,
+                        "task_id": task_id,
+                        "type": task_type,
                         "depends_on": []
                     })
                 for edge in dag.get("edges", []):
@@ -77,9 +138,10 @@ class ArborPlanner:
                 return dag
             else:
                 return [dag]
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # Due to the GCD constraint, this block shouldn't trigger unless schema compilation failed
-            print("Warning: Arbor LLM hallucinated invalid JSON despite GCD. Falling back to default DAG.")
+            print(f"Warning: Arbor LLM hallucinated invalid JSON despite GCD: {e}. Falling back to default DAG.")
+            print("Raw response was:", repr(response))
             return [
                 {"task_id": "t1", "type": "retrieve_context", "depends_on": []},
                 {"task_id": "t2", "type": "generate_topology", "depends_on": ["t1"]}

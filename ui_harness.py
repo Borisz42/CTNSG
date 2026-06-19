@@ -2,6 +2,7 @@ import torch
 import gradio as gr
 import time
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import os
 
 # Ensure local modules are reachable
@@ -12,16 +13,7 @@ from realizer.realizer import CTNSGRealizer
 from contracts.graph_schema import DiscourseGraph, SemanticNode
 from macroplanner.gvt.model import GraphVQTransformer
 from macroplanner.reldit.model import RelDiT
-from transformers import LogitsProcessor
-
-class GreatGrammaLogitsProcessor(LogitsProcessor):
-    def __init__(self, great_gramma, schema):
-        self.gg = great_gramma
-        self.psc = self.gg.compile_schema(schema)
-    
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # We simulate the state_id here
-        return self.gg.apply_transducer_masking(scores, state_id=0, psc=self.psc)
+from realizer.realizer import GreatGrammaLogitsProcessor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -79,7 +71,7 @@ arbor_schema = {
     },
     "required": ["nodes", "edges"]
 }
-arbor_processor = GreatGrammaLogitsProcessor(realizer.grammar, arbor_schema)
+arbor_processor = GreatGrammaLogitsProcessor(realizer.grammar, arbor_schema, tokenizer=tokenizer)
 planner = ArborPlanner(llm=llm, tokenizer=tokenizer, grammar_processor=arbor_processor)
 
 print("Models loaded successfully.")

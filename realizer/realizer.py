@@ -19,19 +19,80 @@ except ImportError:
         def forward(self, x): return self.proj(x)
 
 class GreatGrammaLogitsProcessor(LogitsProcessor):
-    def __init__(self, great_gramma, schema):
+    def __init__(self, great_gramma, schema, tokenizer=None, trunc_proof_optimizer=None, dynamic_budget=None):
         self.gg = great_gramma
-        self.psc = self.gg.compile_schema(schema)
-    
+        self.tokenizer = tokenizer
+        self.psc = self.gg.compile_schema(schema, tokenizer=tokenizer)
+        self.vocab_size = self.psc.vocab_size
+        self.trunc_proof_optimizer = trunc_proof_optimizer
+        self.dynamic_budget = dynamic_budget
+        self.current_step = 0
+        self.current_state_id = 0
+        self.prompt_len = None
+        self._dead_end_logged: set = set()
+
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        return self.gg.apply_transducer_masking(scores, state_id=0, psc=self.psc)
+        self.current_step += 1
+
+        if self.tokenizer and self.psc.schema:
+            # Precompute on first call (lazy, done once)
+            if not self.psc.is_precomputed:
+                self.psc.precompute_closure_masks()
+                self.current_state_id = 0
+
+            # Update state ID based on the last generated token (steps > 1)
+            if self.current_step > 1:
+                last_token_id = input_ids[0][-1].item()
+                if self.current_state_id < len(self.psc.transition_table):
+                    trans = self.psc.transition_table[self.current_state_id]
+                    if last_token_id in trans:
+                        self.current_state_id = trans[last_token_id]
+                    else:
+                        # Token not in precomputed transitions — log once per (state, step) pair
+                        key = (self.current_state_id, self.current_step)
+                        if key not in self._dead_end_logged:
+                            self._dead_end_logged.add(key)
+                            print(
+                                f"[PSC] WARNING: Token {last_token_id} has no transition "
+                                f"from state {self.current_state_id} at step {self.current_step}. "
+                                f"State held — mask remains from current state.",
+                                flush=True
+                            )
+                        # Stay in the same state (mask enforces valid continuations)
+
+            # TruncProof budget check
+            if self.trunc_proof_optimizer and self.dynamic_budget is not None:
+                if self.current_state_id < len(self.psc.shortest_path_len):
+                    path_len = self.psc.shortest_path_len[self.current_state_id]
+                    if (self.dynamic_budget - self.current_step) <= path_len:
+                        next_token = self.psc.shortest_path_token[self.current_state_id]
+                        if next_token != -1:
+                            mask = torch.zeros(scores.shape[-1], dtype=torch.bool, device=scores.device)
+                            mask[next_token] = True
+                            new_scores = scores.clone()
+                            new_scores[..., ~mask] = -float('inf')
+                            return new_scores
+
+            # Retrieve and apply precomputed mask (O(1))
+            mask = self.psc.get_mask(self.current_state_id)
+            mask = mask.to(scores.device)
+            # Handle vocab padding: model logits may have more entries than tokenizer vocab
+            if mask.shape[0] < scores.shape[-1]:
+                padding = torch.zeros(scores.shape[-1] - mask.shape[0], dtype=torch.bool, device=scores.device)
+                mask = torch.cat([mask, padding])
+            new_scores = scores.clone()
+            new_scores[..., ~mask] = -float('inf')
+            return new_scores
+
+        return scores
+
 
 class CTNSGRealizer:
     """
     High-Throughput Neuro-Symbolic Decoding Engine.
     Integrates VNPool, GREATGRAMMA, MTP, and SafeLLM.
     """
-    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 512, model_name: str = "unsloth/Phi-4-mini-instruct"):
+    def __init__(self, vocab_size: int = 32000, hidden_dim: int = 256, model_name: str = "unsloth/Phi-4-mini-instruct"):
         self.vocab_size = vocab_size
         self.hidden_dim = hidden_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -57,25 +118,36 @@ class CTNSGRealizer:
         self.projector = VNProjector(hidden_dim, self.llm_hidden_dim)
         if hasattr(self.projector, 'to'):
             self.projector = self.projector.to(self.device)
-        self.grammar = GreatGramma(self.llm.config.vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"])
+        # Use tokenizer length for grammar (not model config padded size) so the
+        # precomputed DFA cache key is stable across runs and mask dimensions include special tokens.
+        tok_vocab_size = len(self.tokenizer)
+        self.grammar = GreatGramma(tok_vocab_size, allowed_concepts=["System", "Macroplanner", "Graph"])
         self.mtp_engine = DecompositionAndFill(hidden_dim, self.llm.config.vocab_size)
         self.safe_llm = SafeLLMExtractor()
         self.ot_monitor = OptimalTransportMonitor(threshold=0.3)
         
-    def generate(self, graph: DiscourseGraph, schema: dict, context_lines: int, prompt: str = "") -> dict:
+    def generate(self, graph: DiscourseGraph, schema: dict, context_lines: int, prompt: str = "", graph_features: torch.Tensor = None) -> dict:
         """
         Executes the fully guarded decoding process using the Base LLM.
         """
         # 1. VNPool projection (mock continuous features if not provided real ones)
-        graph_embeddings = torch.randn(1, len(graph.nodes), self.hidden_dim).to(self.device)
+        if graph_features is not None:
+            graph_embeddings = graph_features.to(self.device)
+            if graph_embeddings.dim() == 2:
+                graph_embeddings = graph_embeddings.unsqueeze(0)
+        else:
+            graph_embeddings = torch.randn(1, len(graph.nodes), self.hidden_dim).to(self.device)
+            
         # Project graph features to LLM embedding space
         projected_prompts = self.projector.forward(graph_embeddings).to(self.llm.dtype).to(self.device)
         
         # 2. Text Prompt Tokenization
         if prompt:
-            text_input = f"<|im_start|>user\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n"
+            messages = [{"role": "user", "content": prompt}]
         else:
-            text_input = "<|im_start|>user\nProvide a structured summary of the graph.<|im_end|>\n<|im_start|>assistant\n"
+            messages = [{"role": "user", "content": "Provide a structured summary of the graph."}]
+            
+        text_input = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             
         text_tokens = self.tokenizer(text_input, return_tensors="pt").to(self.device)
         text_embeds = self.llm.get_input_embeddings()(text_tokens.input_ids).to(self.llm.dtype).to(self.device)
@@ -87,24 +159,72 @@ class CTNSGRealizer:
         # Explicit attention mask required when passing inputs_embeds
         attention_mask = torch.ones(combined_embeds.shape[:2], dtype=torch.long, device=self.device)
         
-        # 4. Generate using Base LLM
+        # 4. Instantiate TruncProofOptimizer and compute dynamic budget
+        from realizer.safety.safellm import TruncProofOptimizer
+        trunc_proof = TruncProofOptimizer(llm_max_context=32768, schema_closure_tokens=256, safety_margin=64)
+        
+        prompt_tokens = combined_embeds.size(1)
+        try:
+            dynamic_budget = trunc_proof.calculate_dynamic_budget(prompt_tokens)
+        except ValueError:
+            dynamic_budget = 64
+            
+        max_new_tokens = min(1024, dynamic_budget)
+        
         logits_processor = []
         if schema:
-            lp = GreatGrammaLogitsProcessor(self.grammar, schema)
+            lp = GreatGrammaLogitsProcessor(
+                self.grammar, 
+                schema, 
+                tokenizer=self.tokenizer,
+                trunc_proof_optimizer=trunc_proof,
+                dynamic_budget=max_new_tokens
+            )
             logits_processor.append(lp)
             
+        from transformers import StoppingCriteria, StoppingCriteriaList
+ 
+        class MultiSequenceStoppingCriteria(StoppingCriteria):
+            def __init__(self, target_sequences):
+                self.target_sequences = target_sequences
+            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> torch.BoolTensor:
+                is_done = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+                for idx in range(input_ids.shape[0]):
+                    tokens_list = input_ids[idx].tolist()
+                    for seq in self.target_sequences:
+                        seq_len = len(seq)
+                        if len(tokens_list) >= seq_len:
+                            if tokens_list[-seq_len:] == seq:
+                                is_done[idx] = True
+                                break
+                return is_done
+ 
+        im_end_seq = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        eos_token_id = self.tokenizer.eos_token_id
+        target_sequences = []
+        if im_end_seq:
+            target_sequences.append(im_end_seq)
+        if eos_token_id is not None:
+            target_sequences.append([eos_token_id])
+ 
+        stopping_criteria = StoppingCriteriaList([MultiSequenceStoppingCriteria(target_sequences)])
+ 
         with torch.no_grad():
             outputs = self.llm.generate(
                 inputs_embeds=combined_embeds,
                 attention_mask=attention_mask,
-                max_new_tokens=1024,
+                max_new_tokens=max_new_tokens,
                 temperature=0.7,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id,
+                stopping_criteria=stopping_criteria,
                 logits_processor=logits_processor
             )
             
-        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=False)
+        for stop_str in ["<|im_end|>", "<|end|>"]:
+            if stop_str in generated_text:
+                generated_text = generated_text.split(stop_str)[0]
         
         # 5. Safety & Monitor checks
         # Simulate attention to run OT Monitor (in real integration, extract cross-attentions from LLM)
