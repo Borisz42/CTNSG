@@ -149,7 +149,9 @@ class RelDiT(nn.Module):
                 # Last step: unmask all remaining masked tokens
                 num_to_unmask = is_masked.sum(dim=1).max().item()
             else:
-                num_to_unmask = max(1, seq_len // self.num_timesteps)
+                current_masked = is_masked.sum(dim=1).max().item()
+                target_masked = int(seq_len * (t - 1) / self.num_timesteps)
+                num_to_unmask = max(1, current_masked - target_masked)
                 # Safety check: if there are fewer masked tokens than we want to unmask
                 num_to_unmask = min(num_to_unmask, is_masked.sum(dim=1).min().item())
             
@@ -162,10 +164,13 @@ class RelDiT(nn.Module):
             # Simple Iterative Denoising (SID): actively re-corrupt low-likelihood elements
             if 1 < t < self.num_timesteps: # Don't re-mask on the very first or very last unmasking step
                 sid_threshold = 0.2
+                currently_unmasked = (x != self.mask_token_id)
                 if use_critic:
-                    poor_quality = (critic_scores < sid_threshold) & (~is_masked)
+                    poor_quality = (critic_scores < sid_threshold) & currently_unmasked
                 else:
-                    poor_quality = (pred_probs < sid_threshold) & (~is_masked)
+                    safe_x = torch.clamp(x, 0, self.vocab_size - 1)
+                    x_probs = torch.gather(probs, -1, safe_x.unsqueeze(-1)).squeeze(-1)
+                    poor_quality = (x_probs < sid_threshold) & currently_unmasked
                 x[poor_quality] = self.mask_token_id
             
         return x
