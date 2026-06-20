@@ -14,10 +14,11 @@ class ArborPlanner:
         self.tokenizer = tokenizer
         self.grammar_processor = grammar_processor
         
-    def generate_subtask_dag(self, user_query: str) -> List[Dict[str, Any]]:
+    def generate_subtask_dag(self, user_query: str, skeleton_edges: List[Dict[str, Any]] = None, unique_nodes: List[str] = None) -> List[Dict[str, Any]]:
         """
         Generates a directed acyclic graph (DAG) of sub-tasks by prompting the LLM
         with O(1) Grammar-Constrained Decoding (GCD) via the logits processor.
+        If skeleton_edges are provided, acts as a semantic router.
         """
         if self.llm is None or self.tokenizer is None:
             # Fallback for testing without LLM loaded
@@ -28,18 +29,32 @@ class ArborPlanner:
                 {"task_id": "t4", "type": "validate_output", "depends_on": ["t3"]}
             ]
             
-        messages = [
-            {"role": "system", "content": (
+        if unique_nodes is not None:
+            sys_msg = (
+                f"You are the Arbor Semantic Router. I have a topology with the following Node IDs: {json.dumps(unique_nodes)}.\n"
+                "Based on the user's prompt, assign appropriate semantic labels to these node IDs. "
+                "Output the semantic mapping in valid JSON conforming to the following schema:\n"
+                "{\n"
+                "  \"nodes\": [{\"id\": \"node_id\", \"label\": \"Task Description\"}, ...],\n"
+                "  \"edges\": []\n"
+                "}\n"
+                "You must output an empty 'edges' array because I already have the topology."
+            )
+        else:
+            sys_msg = (
                 "You are the Arbor Supervisor. Decompose the user's task into a strict JSON DAG "
                 "conforming to the following schema:\n"
                 "{\n"
-                "  \"nodes\": [\"task_id_1\", \"task_id_2\", ...],\n"
+                "  \"nodes\": [{\"id\": \"task_id_1\", \"label\": \"Task Description\"}, ...],\n"
                 "  \"edges\": [\n"
                 "    {\"source\": \"task_id_1\", \"target\": \"task_id_2\", \"relation\": \"depends_on\"}\n"
                 "  ]\n"
                 "}\n"
                 "Do not use tuples like (a, b) in edges. Use objects with \"source\", \"target\", and \"relation\" keys."
-            )},
+            )
+            
+        messages = [
+            {"role": "system", "content": sys_msg},
             {"role": "user", "content": user_query}
         ]
         prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -56,7 +71,7 @@ class ArborPlanner:
                 dynamic_budget = trunc_proof.calculate_dynamic_budget(prompt_tokens)
             except ValueError:
                 dynamic_budget = 64
-            max_new_tokens = min(1024, dynamic_budget)
+            max_new_tokens = min(4096, dynamic_budget)
             
             # Configure grammar processor dynamically for this run
             self.grammar_processor.trunc_proof_optimizer = trunc_proof
@@ -65,7 +80,7 @@ class ArborPlanner:
             self.grammar_processor.current_state_id = 0
             logits_processor.append(self.grammar_processor)
         else:
-            max_new_tokens = 1024
+            max_new_tokens = 4096
             
         from transformers import StoppingCriteria, StoppingCriteriaList
 
@@ -111,40 +126,90 @@ class ArborPlanner:
         for stop_str in ["<|im_end|>", "<|end|>"]:
             if stop_str in response:
                 response = response.split(stop_str)[0]
+                
+        # Clean trailing commas (common LLM JSON hallucination)
+        import re
+        response = re.sub(r',\s*\]', ']', response)
+        response = re.sub(r',\s*\}', '}', response)
         
         try:
             dag = json.loads(response)
             subtasks = []
             if isinstance(dag, dict) and "nodes" in dag:
-                # Convert {"nodes": ["task1"], "edges": [{"source": "task1", "target": "task2"}]} to the UI's expected format
-                for node in dag.get("nodes", []):
-                    if isinstance(node, dict):
-                        task_id = node.get("id", "unknown")
-                        task_type = node.get("label", node.get("id", "unknown"))
-                    else:
-                        task_id = node
-                        task_type = node
-                    subtasks.append({
-                        "task_id": task_id,
-                        "type": task_type,
-                        "depends_on": []
-                    })
-                for edge in dag.get("edges", []):
-                    source = edge.get("source")
-                    target = edge.get("target")
-                    for st in subtasks:
-                        if st["task_id"] == target:
-                            st["depends_on"].append(source)
-                return subtasks
+                if unique_nodes and skeleton_edges:
+                    assembled_subtasks = []
+                    generated_labels = {}
+                    
+                    for node in dag.get("nodes", []):
+                        if isinstance(node, dict):
+                            generated_labels[node.get("id")] = node.get("label", "Intermediate Task")
+                            
+                    for nid in unique_nodes:
+                        assembled_subtasks.append({
+                            "task_id": nid,
+                            "type": generated_labels.get(nid, "Intermediate Task"),
+                            "depends_on": []
+                        })
+                        
+                    for edge in skeleton_edges:
+                        source = edge.get("source")
+                        target = edge.get("target")
+                        for st in assembled_subtasks:
+                            if st["task_id"] == target and source not in st["depends_on"]:
+                                st["depends_on"].append(source)
+                                
+                    return assembled_subtasks
+                else:
+                    for node in dag.get("nodes", []):
+                        if isinstance(node, dict):
+                            task_id = node.get("id", "unknown")
+                            task_type = node.get("label", node.get("id", "unknown"))
+                        else:
+                            task_id = node
+                            task_type = node
+                        subtasks.append({
+                            "task_id": task_id,
+                            "type": task_type,
+                            "depends_on": []
+                        })
+                    for edge in dag.get("edges", []):
+                        source = edge.get("source")
+                        target = edge.get("target")
+                        for st in subtasks:
+                            if st["task_id"] == target:
+                                st["depends_on"].append(source)
+                                
+                    return subtasks
             elif isinstance(dag, list):
                 return dag
             else:
                 return [dag]
         except json.JSONDecodeError as e:
-            # Due to the GCD constraint, this block shouldn't trigger unless schema compilation failed
+            # Due to the GCD constraint, this block shouldn't trigger unless schema compilation failed or token limit hit
             print(f"Warning: Arbor LLM hallucinated invalid JSON despite GCD: {e}. Falling back to default DAG.")
             print("Raw response was:", repr(response))
+            
+            # If we have a topological skeleton, deterministically assemble it with fallback labels
+            if unique_nodes and skeleton_edges:
+                assembled_subtasks = []
+                for nid in unique_nodes:
+                    assembled_subtasks.append({
+                        "task_id": nid,
+                        "type": "Intermediate Task (Fallback)",
+                        "depends_on": []
+                    })
+                for edge in skeleton_edges:
+                    source = edge.get("source")
+                    target = edge.get("target")
+                    for st in assembled_subtasks:
+                        if st["task_id"] == target and source not in st["depends_on"]:
+                            st["depends_on"].append(source)
+                return assembled_subtasks
+            
+            # Standard flow fallback
             return [
                 {"task_id": "t1", "type": "retrieve_context", "depends_on": []},
-                {"task_id": "t2", "type": "generate_topology", "depends_on": ["t1"]}
+                {"task_id": "t2", "type": "generate_topology", "depends_on": ["t1"]},
+                {"task_id": "t3", "type": "semantic_routing", "depends_on": ["t2"]},
+                {"task_id": "t4", "type": "validate_output", "depends_on": ["t3"]}
             ]

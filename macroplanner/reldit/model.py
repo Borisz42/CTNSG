@@ -178,8 +178,8 @@ class RelDiT(nn.Module):
                 for b in range(batch_size):
                     curr_tokens = x[b].tolist()
                     G = nx.DiGraph()
-                    for j in range(seq_len - 1):
-                        u, v = curr_tokens[j], curr_tokens[j+1]
+                    for j in range(seq_len // 2):
+                        u, v = curr_tokens[2*j], curr_tokens[2*j+1]
                         G.add_edge(u, v)
                         try:
                             nx.find_cycle(G, orientation="original")
@@ -193,8 +193,8 @@ class RelDiT(nn.Module):
                                     G.remove_edge(u, new_v)
                                 except nx.NetworkXNoCycle:
                                     # No cycle with new_v
-                                    x[b, j+1] = new_v
-                                    curr_tokens[j+1] = new_v
+                                    x[b, 2*j+1] = new_v
+                                    curr_tokens[2*j+1] = new_v
                                     break
                         except nx.NetworkXNoCycle:
                             pass

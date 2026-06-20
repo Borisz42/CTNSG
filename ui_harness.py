@@ -55,7 +55,14 @@ arbor_schema = {
     "properties": {
         "nodes": {
             "type": "array",
-            "items": {"type": "string"}
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"}
+                },
+                "required": ["id", "label"]
+            }
         },
         "edges": {
             "type": "array",
@@ -76,7 +83,7 @@ planner = ArborPlanner(llm=llm, tokenizer=tokenizer, grammar_processor=arbor_pro
 
 print("Models loaded successfully.")
 
-def process_query(user_query):
+def process_query(user_query, reldit_toggle, node_count):
     """
     Executes the full CTNSG pipeline for the UI.
     """
@@ -90,7 +97,30 @@ def process_query(user_query):
     
     # 1. Orchestrator
     torch.manual_seed(hash(user_query) % 10000)
-    subtasks = planner.generate_subtask_dag(user_query)
+    
+    if reldit_toggle:
+        # Phase 1: Pure Topological Generation (RelDiT)
+        with torch.no_grad():
+            reldit.eval()
+            gen_tokens = reldit.generate(batch_size=1, seq_len=node_count, device=device, use_critic=True)
+            curr_tokens = gen_tokens[0].tolist()
+            
+        unique_edges = set()
+        skeleton_edges = []
+        for j in range(len(curr_tokens) // 2):
+            edge = (f"n_{curr_tokens[2*j]}", f"n_{curr_tokens[2*j+1]}")
+            if edge[0] != edge[1] and edge not in unique_edges:  # prevent self-loops and duplicates
+                unique_edges.add(edge)
+                skeleton_edges.append({"source": edge[0], "target": edge[1], "relation": "depends_on"})
+        
+        unique_nodes = list(set(f"n_{t}" for t in curr_tokens))
+        num_skeleton_nodes = len(unique_nodes)
+        
+        # Phase 2: Semantic Attachment (Arbor)
+        subtasks = planner.generate_subtask_dag(user_query, skeleton_edges=skeleton_edges, unique_nodes=unique_nodes)
+    else:
+        # Standard Orchestrator Flow
+        subtasks = planner.generate_subtask_dag(user_query)
     
     # Build Mermaid DAG
     mermaid_lines = ["### 🗺️ Planning Graph", "", "```mermaid", "graph TD"]
@@ -148,6 +178,10 @@ def process_query(user_query):
     import json
     import re
     
+    reasoning = "### 🧠 Reasoning\n\n"
+    md_out = "### ✨ Formatted Final Answer\n\n"
+    partial_output = ""
+    
     for res in realizer.generate_stream(graph, schema, context_lines=5, prompt=user_query, graph_features=out['z_q']):
         partial_output = res['text']
         
@@ -194,9 +228,32 @@ def process_query(user_query):
                 md_out += f"```json\n{partial_output}\n```"
                 
             yield dag_mermaid, reasoning, md_out
-            
-    end_time = time.time()
 
+    # Final cleanup yield after stream finishes
+    for stop_str in ["<|im_end|>", "<|end|>"]:
+        if stop_str in partial_output:
+            partial_output = partial_output.split(stop_str)[0]
+            
+    partial_output = re.sub(r',\s*\]', ']', partial_output)
+    partial_output = re.sub(r',\s*\}', '}', partial_output)
+    
+    try:
+        out_data = json.loads(partial_output)
+        raw_reasoning = out_data.get("reasoning", "")
+        raw_md_out = out_data.get("markdown_output", "")
+        if isinstance(raw_reasoning, str):
+            raw_reasoning = raw_reasoning.replace('\\n', '\n')
+        if isinstance(raw_md_out, str):
+            raw_md_out = raw_md_out.replace('\\n', '\n')
+            
+        reasoning = "### 🧠 Reasoning\n\n" + str(raw_reasoning)
+        md_out = "### ✨ Formatted Final Answer\n\n" + str(raw_md_out)
+    except Exception:
+        reasoning = reasoning.replace(" ▌", "")
+        md_out = md_out.replace(" ▌", "")
+        
+    yield dag_mermaid, reasoning, md_out
+            
 # Gradio Interface
 with gr.Blocks(title="CTNSG Framework Inference Harness") as demo:
     gr.Markdown("# Canonical Tractable Neuro-Symbolic Generation")
@@ -205,6 +262,8 @@ with gr.Blocks(title="CTNSG Framework Inference Harness") as demo:
     with gr.Row():
         with gr.Column(scale=1):
             query_input = gr.Textbox(label="User Intent / Query", placeholder="Enter a complex logical request...", lines=3)
+            reldit_toggle = gr.Checkbox(label="Enable Massive Structural Blueprinting (RelDiT)", value=False)
+            node_count_slider = gr.Slider(minimum=1, maximum=100, step=1, value=54, label="RelDiT Node Count (Skeleton Size)")
             submit_btn = gr.Button("Generate with CTNSG", variant="primary")
             
         with gr.Column(scale=2):
@@ -212,7 +271,7 @@ with gr.Blocks(title="CTNSG Framework Inference Harness") as demo:
             reasoning_output = gr.Markdown(label="Supervisor Reasoning")
             markdown_output = gr.Markdown(label="Final Syntactic Realization (L1 Validated)")
             
-    submit_btn.click(fn=process_query, inputs=[query_input], outputs=[dag_visual, reasoning_output, markdown_output])
+    submit_btn.click(fn=process_query, inputs=[query_input, reldit_toggle, node_count_slider], outputs=[dag_visual, reasoning_output, markdown_output])
 
 if __name__ == "__main__":
     print("Starting CTNSG UI Harness...")
